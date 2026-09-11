@@ -1,8 +1,15 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Car } from './Car';
 import { ThreeStorefront } from './ThreeStorefront';
+
+interface LetterItem {
+  char: string;
+  x: number;
+  y: number;
+  angle: number;
+}
 
 interface Particle {
   id: number;
@@ -49,9 +56,10 @@ export const CarOverTextAnimation: React.FC = () => {
     height: 800,
   });
 
-  // SVG Path ref and continuous path length
+  // SVG Path ref and pre-computed 3D letters along track
   const pathRef = useRef<SVGPathElement | null>(null);
-  const [pathLength, setPathLength] = useState<number>(4200);
+  const [letters, setLetters] = useState<LetterItem[]>([]);
+  const [pathLength, setPathLength] = useState<number>(4000);
 
   // 3D Storefront arrival state
   const [carStoppedAtEnd, setCarStoppedAtEnd] = useState<boolean>(false);
@@ -74,18 +82,23 @@ export const CarOverTextAnimation: React.FC = () => {
   const audioInitializedRef = useRef<boolean>(false);
 
   // ----------------------------------------------------
-  // CREATIVE TEXT ON WHICH THE CAR TRAVELS
-  // Matching the reference image: repeating serif 'Y's forming the track
+  // CREATIVE 3D TEXT ON WHICH THE CAR TRAVELS
+  // Clear, readable, and minimal narrative matching the iconic commercial
   // ----------------------------------------------------
   const trackStoryText = useMemo(() => {
     return (
-      'WH' +
-      'Y'.repeat(160) +
-      ' WAIT FOR A SALE?   WH' +
-      'Y'.repeat(140) +
-      ' PAY FULL PRICE?   WH' +
-      'Y'.repeat(120) +
-      ' NOT SHOP ON FLIPKART?   SHOP NOW'
+      'WHY • WAIT • FOR • A • SALE • ' +
+      'WHY • PAY • FULL • PRICE • ' +
+      'WHEN • YOU • CAN • GET • THE • BEST • DEALS • ' +
+      'EVERY • SINGLE • DAY • ' +
+      'UNBEATABLE • PRICES • ' +
+      'MAXIMUM • VALUE • ' +
+      'TOP • BRANDS • ' +
+      'GENUINE • PRODUCTS • ' +
+      'FAST • DELIVERY • ' +
+      'WELCOME • TO • FLIPKART • ' +
+      'INDIA\'S • FAVORITE • DESTINATION • ' +
+      'SHOP • NOW • '
     );
   }, []);
 
@@ -94,10 +107,10 @@ export const CarOverTextAnimation: React.FC = () => {
   // Coordinate Space: 0 0 4400 700
   // Features:
   // 1. Initial undulating gentle wave (X: 30 to 940)
-  // 2. The Valley Dip & Rise (X: 940 to 1820)
-  // 3. The Grand 3D Rollercoaster Loop Crest (X: 1820 to 2860) - Zero collision
-  // 4. Airtime Wave Hills (X: 2860 to 3480)
-  // 5. Level Runway to 3D Flipkart Storefront (X: 3480 to 4200)
+  // 2. The Valley Dip & Hill (X: 940 to 1820)
+  // 3. Approach ramp & 360° Teardrop Loop (X: 1820 to 2680)
+  // 4. Airtime Wave Hills (X: 2680 to 3420)
+  // 5. Level Runway to 3D Flipkart Storefront (X: 3420 to 4200)
   // ----------------------------------------------------
   const trackPathD = useMemo(() => {
     return [
@@ -107,12 +120,13 @@ export const CarOverTextAnimation: React.FC = () => {
       'C 1100,340 1220,440 1380,440',
       'C 1540,440 1660,260 1820,260',
       'C 1950,260 2050,340 2160,340',
-      'C 2260,340 2340,250 2400,150',
-      'C 2450,60 2500,25 2560,25',
-      'C 2620,25 2670,70 2720,160',
-      'C 2770,250 2820,340 2920,340',
-      'C 3040,340 3120,250 3220,250',
-      'C 3320,250 3380,340 3480,340',
+      'C 2240,340 2310,310 2370,270',
+      'C 2450,210 2540,110 2520,40',
+      'C 2500,-30 2400,-30 2350,40',
+      'C 2290,110 2290,210 2380,270',
+      'C 2440,310 2540,340 2680,340',
+      'C 2820,340 2920,240 3050,240',
+      'C 3180,240 3280,340 3420,340',
       'L 4200,340',
     ].join(' ');
   }, []);
@@ -193,21 +207,68 @@ export const CarOverTextAnimation: React.FC = () => {
   }, []);
 
   // ----------------------------------------------------
-  // MEASURE PATH LENGTH FOR KINEMATICS
+  // SAMPLE 3D LETTERS ALONG CONTINUOUS PATH
+  // Proportional character spacing ensures words are clean, legible, and uncluttered
   // ----------------------------------------------------
-  useEffect(() => {
-    const updateLength = () => {
-      if (pathRef.current) {
-        const len = pathRef.current.getTotalLength();
-        if (len > 0) {
-          setPathLength(len);
-        }
-      }
+  const sampleTrackLetters = useCallback(() => {
+    const path = pathRef.current;
+    if (!path) return;
+    const totalLen = path.getTotalLength();
+    if (totalLen <= 0) return;
+
+    setPathLength(totalLen);
+
+    // Proportional character advance width for minimal, small, sleek typography
+    const getCharAdvance = (char: string): number => {
+      if (char === ' ') return 8;
+      if (char === '•') return 10;
+      if (char === 'I' || char === '!' || char === '\'' || char === '.') return 6;
+      if (char === 'W' || char === 'M') return 15;
+      if (char === 'O' || char === 'Q' || char === 'D' || char === 'C' || char === 'G') return 13;
+      return 11;
     };
-    updateLength();
-    const timer = setTimeout(updateLength, 40);
+
+    const items: LetterItem[] = [];
+    let dist = 14;
+    let charIndex = 0;
+
+    while (dist < totalLen - 14) {
+      const char = trackStoryText[charIndex % trackStoryText.length];
+      const pt = path.getPointAtLength(dist);
+
+      const d1 = Math.max(0, dist - 1.2);
+      const d2 = Math.min(totalLen, dist + 1.2);
+      const p1 = path.getPointAtLength(d1);
+      const p2 = path.getPointAtLength(d2);
+      const angle = (Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180) / Math.PI;
+
+      if (char !== ' ') {
+        items.push({
+          char,
+          x: pt.x,
+          y: pt.y,
+          angle: isNaN(angle) ? 0 : angle,
+        });
+      }
+
+      const currentAdv = getCharAdvance(char);
+      const nextChar = trackStoryText[(charIndex + 1) % trackStoryText.length];
+      const nextAdv = getCharAdvance(nextChar);
+      const step = (currentAdv + nextAdv) / 2;
+
+      dist += step;
+      charIndex++;
+    }
+
+    setLetters(items);
+  }, [trackStoryText]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      sampleTrackLetters();
+    }, 50);
     return () => clearTimeout(timer);
-  }, [trackPathD]);
+  }, [sampleTrackLetters]);
 
   // ----------------------------------------------------
   // X-AXIS SCROLL & WHEEL EVENT LISTENER (Small, Effortless Scroll)
@@ -431,16 +492,54 @@ export const CarOverTextAnimation: React.FC = () => {
       </svg>
 
       {/* ======================================================== */}
-      {/* WARM MINIMAL STUDIO BACKDROP (Matching Reference Image)  */}
+      {/* 1. PARALLAX DISTANT BACKGROUND HORIZON & MOUNTAINS       */}
       {/* ======================================================== */}
       <div
         className="absolute inset-0 pointer-events-none transition-transform will-change-transform"
         style={{
-          transform: `translate3d(${-camera.x * 0.08}px, ${-camera.y * 0.05}px, 0)`,
+          transform: `translate3d(${-camera.x * 0.12}px, ${-camera.y * 0.08}px, 0)`,
         }}
       >
-        {/* Soft Ambient Studio Spotlight */}
-        <div className="absolute top-[10%] left-[20%] w-[750px] h-[750px] rounded-full bg-gradient-to-tr from-[#FDE68A]/25 via-[#FCA5A5]/15 to-transparent blur-3xl opacity-70" />
+        {/* Glowing Ambient Celestial Light */}
+        <div className="absolute top-[12%] left-[25%] w-[650px] h-[650px] rounded-full bg-gradient-to-tr from-[#FDE68A]/30 via-[#FCA5A5]/20 to-transparent blur-3xl opacity-75" />
+
+        {/* Far Distant Mountain Ridges */}
+        <svg
+          className="absolute bottom-0 w-[6000px] h-[450px] opacity-40 overflow-visible"
+          viewBox="0 0 6000 450"
+          preserveAspectRatio="none"
+        >
+          <path
+            d="M 0 450 L 0 310 Q 750 190 1500 320 T 3000 290 T 4500 320 T 6000 300 L 6000 450 Z"
+            fill="#DEC9C2"
+          />
+          <path
+            d="M 0 450 L 0 360 Q 600 290 1250 370 T 2600 340 T 4000 370 T 6000 350 L 6000 450 Z"
+            fill="#CEB5AC"
+            opacity="0.75"
+          />
+        </svg>
+      </div>
+
+      {/* ======================================================== */}
+      {/* 2. MIDGROUND PARALLAX DUNES                              */}
+      {/* ======================================================== */}
+      <div
+        className="absolute inset-0 pointer-events-none transition-transform will-change-transform"
+        style={{
+          transform: `translate3d(${-camera.x * 0.3}px, ${-camera.y * 0.18}px, 0)`,
+        }}
+      >
+        <svg
+          className="absolute bottom-0 w-[5000px] h-[350px] opacity-35 overflow-visible"
+          viewBox="0 0 5000 350"
+          preserveAspectRatio="none"
+        >
+          <path
+            d="M 0 350 L 0 240 Q 450 170 1000 250 T 2100 220 T 3250 250 T 4500 220 T 5000 240 L 5000 350 Z"
+            fill="#BFA399"
+          />
+        </svg>
       </div>
 
       {/* ======================================================== */}
@@ -476,33 +575,86 @@ export const CarOverTextAnimation: React.FC = () => {
           viewBox="0 0 4400 750"
         >
           <defs>
-            {/* The underlying kinematics & text anchor path */}
-            <path id="mainTrackPath" ref={pathRef} d={trackPathD} fill="none" />
+            {/* 3D Letter Face Gradient (Rich Wine / Magenta from commercial) */}
+            <linearGradient id="letterFaceGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#831843" />
+              <stop offset="40%" stopColor="#701A75" />
+              <stop offset="100%" stopColor="#4A044E" />
+            </linearGradient>
+
+            {/* 3D Extrusion Side Gradient (Deep Burgundy Shadow) */}
+            <linearGradient id="extSideGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#38072B" />
+              <stop offset="50%" stopColor="#25051D" />
+              <stop offset="100%" stopColor="#14020F" />
+            </linearGradient>
           </defs>
 
           {/* ---------------------------------------------------- */}
-          {/* SINGLE-LAYER SERIF TEXT TRACK (Matching Reference Image) */}
-          {/* Flat, single-layer bold serif typography matching reference */}
-          {/* Bottom two layers removed as requested              */}
+          {/* MINIMAL CONTINUOUS TRACK BED BENEATH LETTERS         */}
+          {/* Clean minimal guide rail supporting the letters      */}
           {/* ---------------------------------------------------- */}
-          <g className="text-track">
-            <text
-              className="select-none pointer-events-none uppercase"
-              style={{
-                fontFamily:
-                  'var(--font-playfair), "Playfair Display", Georgia, "Times New Roman", serif',
-                fontSize: '28px',
-                fontWeight: 800,
-                letterSpacing: '-0.005em',
-              }}
-              dominantBaseline="hanging"
-              dy="0"
-              fill="#2D0B22"
-            >
-              <textPath href="#mainTrackPath" startOffset="30px">
-                {trackStoryText}
-              </textPath>
-            </text>
+          <path
+            d={trackPathD}
+            fill="none"
+            stroke="#2B0723"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity="0.14"
+          />
+
+          {/* ---------------------------------------------------- */}
+          {/* THE 3D ARCHITECTURAL LETTERS (Minimal & Small Fonts) */}
+          {/* Clean, sleek modern grotesque typography like video  */}
+          {/* ---------------------------------------------------- */}
+          <g className="letters-layer">
+            {letters.map((item, idx) => (
+              <g
+                key={`letter-${idx}`}
+                transform={`translate(${item.x}, ${item.y}) rotate(${item.angle})`}
+              >
+                {/* 1. Subtle 3D Extrusion Bevel (Clean, Minimal Depth) */}
+                <text
+                  x="1"
+                  y="14"
+                  textAnchor="middle"
+                  fill="#25041A"
+                  stroke="#160210"
+                  strokeWidth="0.4"
+                  className="select-none pointer-events-none"
+                  style={{
+                    fontFamily:
+                      'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+                    fontSize: item.char === '•' ? '10px' : '15px',
+                    fontWeight: '800',
+                    letterSpacing: '0.04em',
+                  }}
+                >
+                  {item.char}
+                </text>
+
+                {/* 2. Crisp Minimal Front Face */}
+                <text
+                  x="0"
+                  y="13"
+                  textAnchor="middle"
+                  fill={item.char === '•' ? '#F59E0B' : 'url(#letterFaceGrad)'}
+                  stroke={item.char === '•' ? 'none' : '#2A041C'}
+                  strokeWidth={item.char === '•' ? '0' : '0.4'}
+                  className="select-none pointer-events-none"
+                  style={{
+                    fontFamily:
+                      'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+                    fontSize: item.char === '•' ? '10px' : '15px',
+                    fontWeight: '800',
+                    letterSpacing: '0.04em',
+                  }}
+                >
+                  {item.char}
+                </text>
+              </g>
+            ))}
           </g>
 
           {/* ---------------------------------------------------- */}

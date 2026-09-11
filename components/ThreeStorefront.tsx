@@ -42,7 +42,7 @@ export const ThreeStorefront: React.FC<ThreeStorefrontProps> = ({
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
     container.appendChild(renderer.domElement);
@@ -573,15 +573,12 @@ export const ThreeStorefront: React.FC<ThreeStorefrontProps> = ({
     // 8. ANIMATION LOOP
     // -------------------------------------------------------------------------
     let animId: number;
-    let lastTime = performance.now();
-    const startTime = performance.now();
+    let clock = new THREE.Clock();
 
     const animate = () => {
       animId = requestAnimationFrame(animate);
-      const now = performance.now();
-      const delta = Math.min(0.1, (now - lastTime) / 1000);
-      lastTime = now;
-      const elapsed = (now - startTime) / 1000;
+      const delta = clock.getDelta();
+      const elapsed = clock.getElapsedTime();
 
       // Idle auto-rotation
       if (autoRotate) {
