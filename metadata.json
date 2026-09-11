@@ -1,0 +1,6 @@
+{
+  "name": "Car Over Text Animation",
+  "description": "Exact animation of a car driving over custom text tracks including the ribbon loop, valley dip, and storefront scenes from the videos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
