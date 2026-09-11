@@ -74,21 +74,18 @@ export const CarOverTextAnimation: React.FC = () => {
   const audioInitializedRef = useRef<boolean>(false);
 
   // ----------------------------------------------------
-  // CREATIVE 3D TEXT ON WHICH THE CAR TRAVELS
-  // Clean, continuous commercial typography (no disjointed dots or breaks)
+  // CREATIVE TEXT ON WHICH THE CAR TRAVELS
+  // Matching the reference image: repeating serif 'Y's forming the track
   // ----------------------------------------------------
   const trackStoryText = useMemo(() => {
     return (
-      'WHY WAIT FOR A SALE?   ' +
-      'WHY PAY FULL PRICE WHEN YOU CAN GET THE BEST DEALS EVERY SINGLE DAY?   ' +
-      'UNBEATABLE PRICES   ' +
-      'EXTRAORDINARY VALUE   ' +
-      'TOP BRANDS   ' +
-      'GENUINE PRODUCTS   ' +
-      'FASTEST DELIVERY   ' +
-      'WELCOME TO FLIPKART   ' +
-      "INDIA'S FAVORITE SHOPPING DESTINATION   " +
-      'SHOP NOW'
+      'WH' +
+      'Y'.repeat(160) +
+      ' WAIT FOR A SALE?   WH' +
+      'Y'.repeat(140) +
+      ' PAY FULL PRICE?   WH' +
+      'Y'.repeat(120) +
+      ' NOT SHOP ON FLIPKART?   SHOP NOW'
     );
   }, []);
 
@@ -434,54 +431,16 @@ export const CarOverTextAnimation: React.FC = () => {
       </svg>
 
       {/* ======================================================== */}
-      {/* 1. PARALLAX DISTANT BACKGROUND HORIZON & MOUNTAINS       */}
+      {/* WARM MINIMAL STUDIO BACKDROP (Matching Reference Image)  */}
       {/* ======================================================== */}
       <div
         className="absolute inset-0 pointer-events-none transition-transform will-change-transform"
         style={{
-          transform: `translate3d(${-camera.x * 0.12}px, ${-camera.y * 0.08}px, 0)`,
+          transform: `translate3d(${-camera.x * 0.08}px, ${-camera.y * 0.05}px, 0)`,
         }}
       >
-        {/* Glowing Ambient Celestial Light */}
-        <div className="absolute top-[12%] left-[25%] w-[650px] h-[650px] rounded-full bg-gradient-to-tr from-[#FDE68A]/30 via-[#FCA5A5]/20 to-transparent blur-3xl opacity-75" />
-
-        {/* Far Distant Mountain Ridges */}
-        <svg
-          className="absolute bottom-0 w-[6000px] h-[450px] opacity-40 overflow-visible"
-          viewBox="0 0 6000 450"
-          preserveAspectRatio="none"
-        >
-          <path
-            d="M 0 450 L 0 310 Q 750 190 1500 320 T 3000 290 T 4500 320 T 6000 300 L 6000 450 Z"
-            fill="#DEC9C2"
-          />
-          <path
-            d="M 0 450 L 0 360 Q 600 290 1250 370 T 2600 340 T 4000 370 T 6000 350 L 6000 450 Z"
-            fill="#CEB5AC"
-            opacity="0.75"
-          />
-        </svg>
-      </div>
-
-      {/* ======================================================== */}
-      {/* 2. MIDGROUND PARALLAX DUNES                              */}
-      {/* ======================================================== */}
-      <div
-        className="absolute inset-0 pointer-events-none transition-transform will-change-transform"
-        style={{
-          transform: `translate3d(${-camera.x * 0.3}px, ${-camera.y * 0.18}px, 0)`,
-        }}
-      >
-        <svg
-          className="absolute bottom-0 w-[5000px] h-[350px] opacity-35 overflow-visible"
-          viewBox="0 0 5000 350"
-          preserveAspectRatio="none"
-        >
-          <path
-            d="M 0 350 L 0 240 Q 450 170 1000 250 T 2100 220 T 3250 250 T 4500 220 T 5000 240 L 5000 350 Z"
-            fill="#BFA399"
-          />
-        </svg>
+        {/* Soft Ambient Studio Spotlight */}
+        <div className="absolute top-[10%] left-[20%] w-[750px] h-[750px] rounded-full bg-gradient-to-tr from-[#FDE68A]/25 via-[#FCA5A5]/15 to-transparent blur-3xl opacity-70" />
       </div>
 
       {/* ======================================================== */}
@@ -519,87 +478,26 @@ export const CarOverTextAnimation: React.FC = () => {
           <defs>
             {/* The underlying kinematics & text anchor path */}
             <path id="mainTrackPath" ref={pathRef} d={trackPathD} fill="none" />
-
-            {/* 3D Letter Face Gradient (Rich Wine / Magenta from commercial) */}
-            <linearGradient id="letterFaceGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#9D174D" />
-              <stop offset="40%" stopColor="#701A75" />
-              <stop offset="100%" stopColor="#4A044E" />
-            </linearGradient>
-
-            {/* 3D Extrusion Side Gradient (Deep Burgundy Shadow) */}
-            <linearGradient id="extSideGrad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#38072B" />
-              <stop offset="50%" stopColor="#25051D" />
-              <stop offset="100%" stopColor="#14020F" />
-            </linearGradient>
           </defs>
 
           {/* ---------------------------------------------------- */}
-          {/* THE 3D ARCHITECTURAL TEXT TRACK (The road IS the text) */}
-          {/* Continuous, sleek commercial typography matching video*/}
-          {/* No wire line, no random dots, solid typographic track */}
+          {/* SINGLE-LAYER SERIF TEXT TRACK (Matching Reference Image) */}
+          {/* Flat, single-layer bold serif typography matching reference */}
+          {/* Bottom two layers removed as requested              */}
           {/* ---------------------------------------------------- */}
-          <g className="text-track-3d">
-            {/* 1. Deepest 3D Extrusion Shadow (Solid Deep Burgundy Foundation) */}
+          <g className="text-track">
             <text
               className="select-none pointer-events-none uppercase"
               style={{
                 fontFamily:
-                  'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif',
-                fontSize: '25px',
-                fontWeight: 900,
-                letterSpacing: '0.07em',
-              }}
-              dominantBaseline="hanging"
-              dy="8"
-              fill="#14020F"
-              stroke="#14020F"
-              strokeWidth="4"
-              strokeLinejoin="round"
-            >
-              <textPath href="#mainTrackPath" startOffset="30px">
-                {trackStoryText}
-              </textPath>
-            </text>
-
-            {/* 2. Mid 3D Extrusion Bevel (Rich Plum / Burgundy) */}
-            <text
-              className="select-none pointer-events-none uppercase"
-              style={{
-                fontFamily:
-                  'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif',
-                fontSize: '25px',
-                fontWeight: 900,
-                letterSpacing: '0.07em',
-              }}
-              dominantBaseline="hanging"
-              dy="4"
-              fill="#4A044E"
-              stroke="#25051D"
-              strokeWidth="2"
-              strokeLinejoin="round"
-            >
-              <textPath href="#mainTrackPath" startOffset="30px">
-                {trackStoryText}
-              </textPath>
-            </text>
-
-            {/* 3. Crisp Front Face (Vibrant Wine/Magenta Commercial Gradient) */}
-            <text
-              className="select-none pointer-events-none uppercase"
-              style={{
-                fontFamily:
-                  'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif',
-                fontSize: '25px',
-                fontWeight: 900,
-                letterSpacing: '0.07em',
+                  'var(--font-playfair), "Playfair Display", Georgia, "Times New Roman", serif',
+                fontSize: '28px',
+                fontWeight: 800,
+                letterSpacing: '-0.005em',
               }}
               dominantBaseline="hanging"
               dy="0"
-              fill="url(#letterFaceGrad)"
-              stroke="#25041A"
-              strokeWidth="0.6"
+              fill="#2D0B22"
             >
               <textPath href="#mainTrackPath" startOffset="30px">
                 {trackStoryText}
