@@ -4,6 +4,16 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Car } from '@/components/Car';
 import { ThreeBike } from '@/components/ThreeBike';
 import { Motorbike } from '@/components/Motorbike';
+import {
+  stepPhysics,
+  sampleTrack,
+  createInitialPhysicsState,
+  VEHICLE_CONFIGS,
+  type VehicleType,
+  type PhysicsState,
+  type PhysicsInputs,
+} from '@/lib/physics';
+import { getAudioEngine } from '@/lib/audio';
 
 interface LetterItem {
   char: string;
@@ -23,37 +33,30 @@ interface Particle {
   color: string;
 }
 
-// Pre-computed spoke offsets (dx, dy) for 5-spoke wheel at [0°, 72°, 144°, 216°, 288°]
-// Avoids SSR hydration mismatch from floating-point Math.cos/sin differences
-const SPOKE_OFFSETS: { dx: number; dy: number }[] = [0, 72, 144, 216, 288].map((deg) => {
-  const rad = (deg * Math.PI) / 180;
-  return { dx: Math.round(8 * Math.cos(rad) * 1000) / 1000, dy: Math.round(8 * Math.sin(rad) * 1000) / 1000 };
-});
-
 // Pre-computed spoke offsets for 24-spoke bicycle wheels (radius 16)
 const BIKE_SPOKE_OFFSETS_24: { dx: number; dy: number }[] = Array.from({ length: 24 }, (_, i) => {
   const rad = (i * 15 * Math.PI) / 180;
   return { dx: Math.round(16 * Math.cos(rad) * 1000) / 1000, dy: Math.round(16 * Math.sin(rad) * 1000) / 1000 };
 });
 
-/**
- * Minimal white page with "let's fuckingggg goooo" text
- * laid out along an upside-down roller coaster loop path.
- * Features:
- * - Detailed vintage yellow car from the commercial with headlight beam, braking glow, and tire smoke
- * - Cycle A (detailed 2D vector bicycle with clear leg pedaling kinematics)
- * - Cycle B (3D Three.js articulated road bike with dynamic 2-link IK legs)
- * - Smooth inertia physics, spring camera tracking, and interactive toggle
- */
 export default function HomePage() {
-  const targetProgressRef = useRef<number>(0);
-  const currentProgressRef = useRef<number>(0);
-  const scrollVelocityRef = useRef<number>(0);
+  const [vehicle, setVehicle] = useState<VehicleType>('car');
+  const vehicleRef = useRef<VehicleType>('car');
+  vehicleRef.current = vehicle;
+
+  const physicsStateRef = useRef<PhysicsState>(createInitialPhysicsState(50));
+  const physicsInputsRef = useRef<PhysicsInputs>({
+    throttle: 0,
+    brake: 0,
+    impulseVelocity: 0,
+    isDragging: false,
+    dragVelocity: 0,
+  });
+
   const prevAngleRef = useRef<number>(0);
-  const prevDistRef = useRef<number>(0);
-  const wheelRotRef = useRef<number>(0);
   const isFirstFrameRef = useRef<boolean>(true);
 
+  // Vehicle visual transform state
   const [vehiclePos, setVehiclePos] = useState<{
     x: number;
     y: number;
@@ -62,7 +65,11 @@ export default function HomePage() {
     isBraking: boolean;
   }>({ x: 50, y: 480, angle: 0, wheelRot: 0, isBraking: false });
 
-  const [vehicle, setVehicle] = useState<'car' | 'moto' | 'bikeA' | 'bikeB'>('car');
+  const [progressVal, setProgressVal] = useState<number>(0);
+
+  // Audio system state
+  const [isAudioMuted, setIsAudioMuted] = useState<boolean>(false);
+  const [isAudioActive, setIsAudioActive] = useState<boolean>(false);
 
   const [camera, setCamera] = useState<{ x: number; y: number }>({ x: -400, y: 0 });
   const [viewport, setViewport] = useState<{ width: number; height: number }>({
@@ -73,15 +80,18 @@ export default function HomePage() {
   const pathRef = useRef<SVGPathElement | null>(null);
   const [letters, setLetters] = useState<LetterItem[]>([]);
   const [pathLength, setPathLength] = useState<number>(4000);
-  const [progressVal, setProgressVal] = useState<number>(0);
 
   // Tire smoke & dust particles
   const [particles, setParticles] = useState<Particle[]>([]);
   const particleIdRef = useRef<number>(0);
 
+  // Drag interaction tracking
   const isDraggingRef = useRef<boolean>(false);
-  const dragStartXRef = useRef<number>(0);
-  const dragStartProgressRef = useRef<number>(0);
+  const dragLastXRef = useRef<number>(0);
+  const dragLastTimeRef = useRef<number>(0);
+
+  // Keys held down for driving
+  const keysHeldRef = useRef<{ [key: string]: boolean }>({});
 
   // ================================================
   // TEXT
@@ -92,9 +102,6 @@ export default function HomePage() {
 
   // ================================================
   // PATH: Gentle approach → Teardrop loop (crossing) → Hills & Waves
-  // ViewBox: 0 0 5000 750
-  // The teardrop loop forms a crossing 'X' at the bottom
-  // and reaches full inversion (upside down) at the apex.
   // ================================================
   const trackPathD = useMemo(() => {
     return [
@@ -196,134 +203,229 @@ export default function HomePage() {
   }, [trackText]);
 
   useEffect(() => {
+    sampleLetters();
     const timer = setTimeout(sampleLetters, 50);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(sampleLetters, 200);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(timer2);
+    };
   }, [sampleLetters]);
 
   // ================================================
-  // SMOOTH CONTROLS (Small, natural scroll feel)
+  // AUDIO UNLOCK & CONTROLS
   // ================================================
+  const unlockAudio = useCallback(() => {
+    const audio = getAudioEngine();
+    const ok = audio.init();
+    if (ok) {
+      setIsAudioActive(true);
+      setIsAudioMuted(audio.getIsMuted());
+    }
+  }, []);
+
+  const handleToggleMute = useCallback(() => {
+    const audio = getAudioEngine();
+    const muted = audio.toggleMute();
+    setIsAudioMuted(muted);
+    setIsAudioActive(!muted);
+  }, []);
+
+  const handleHorn = useCallback(() => {
+    unlockAudio();
+    getAudioEngine().triggerHorn(vehicleRef.current);
+  }, [unlockAudio]);
+
+  // Automated test hook (e.g. ?test=1 or ?vehicle=moto)
   useEffect(() => {
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const raw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-      const clampedDelta = Math.sign(raw) * Math.min(Math.abs(raw), 100);
-      const deltaVelocity = clampedDelta * 0.00007;
-
-      scrollVelocityRef.current += deltaVelocity;
-      scrollVelocityRef.current = Math.max(
-        -0.006,
-        Math.min(0.006, scrollVelocityRef.current)
-      );
-    };
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight' || e.key === 'KeyD' || e.key === 'ArrowDown') {
-        e.preventDefault();
-        targetProgressRef.current = Math.min(1, targetProgressRef.current + 0.025);
-      } else if (e.key === 'ArrowLeft' || e.key === 'KeyA' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        targetProgressRef.current = Math.max(0, targetProgressRef.current - 0.025);
-      }
-    };
-
-    window.addEventListener('wheel', onWheel, { passive: false });
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('wheel', onWheel);
-      window.removeEventListener('keydown', onKey);
-    };
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('test') === '1') {
+      physicsInputsRef.current.throttle = 1;
+      const timer = setTimeout(() => {
+        physicsInputsRef.current.throttle = 0;
+      }, 2500);
+      return () => clearTimeout(timer);
+    }
+    const vParam = params.get('vehicle');
+    if (vParam && ['car', 'moto', 'bikeA', 'bikeB'].includes(vParam)) {
+      setVehicle(vParam as VehicleType);
+    }
   }, []);
 
   // ================================================
-  // DRAG TO DRIVE
+  // KEYBOARD & MOUSE CONTROLS (Physics integration)
+  // ================================================
+  useEffect(() => {
+    const updateInputsFromKeys = () => {
+      const keys = keysHeldRef.current;
+      const isThrottling =
+        keys['ArrowRight'] ||
+        keys['KeyD'] ||
+        keys['ArrowDown'] ||
+        keys['KeyW'];
+      const isBraking =
+        keys['ArrowLeft'] ||
+        keys['KeyA'] ||
+        keys['ArrowUp'] ||
+        keys['KeyS'];
+
+      physicsInputsRef.current.throttle = isThrottling ? 1 : 0;
+      physicsInputsRef.current.brake = isBraking ? 1 : 0;
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      unlockAudio();
+
+      if (e.code === 'Space' || e.key === 'h' || e.key === 'H') {
+        e.preventDefault();
+        getAudioEngine().triggerHorn(vehicleRef.current);
+        return;
+      }
+      if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        handleToggleMute();
+        return;
+      }
+
+      if (
+        ['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'KeyD', 'KeyA', 'KeyW', 'KeyS'].includes(
+          e.code
+        )
+      ) {
+        e.preventDefault();
+        keysHeldRef.current[e.code] = true;
+        updateInputsFromKeys();
+      }
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (
+        ['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'KeyD', 'KeyA', 'KeyW', 'KeyS'].includes(
+          e.code
+        )
+      ) {
+        keysHeldRef.current[e.code] = false;
+        updateInputsFromKeys();
+      }
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      unlockAudio();
+      const raw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      const clampedDelta = Math.sign(raw) * Math.min(Math.abs(raw), 70);
+
+      // Smooth, gentle scroll impulse for comfortable browsing speed
+      const impulse = clampedDelta * 0.75;
+      physicsInputsRef.current.impulseVelocity = Math.max(
+        -200,
+        Math.min(300, physicsInputsRef.current.impulseVelocity + impulse)
+      );
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('wheel', onWheel, { passive: false });
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('wheel', onWheel);
+    };
+  }, [unlockAudio, handleToggleMute]);
+
+  // ================================================
+  // DRAG TO DRIVE / FLING PHYSICS
   // ================================================
   const onPointerDown = (e: React.PointerEvent) => {
+    unlockAudio();
     isDraggingRef.current = true;
-    dragStartXRef.current = e.clientX;
-    dragStartProgressRef.current = targetProgressRef.current;
-    scrollVelocityRef.current = 0;
+    dragLastXRef.current = e.clientX;
+    dragLastTimeRef.current = performance.now();
+    physicsInputsRef.current.isDragging = true;
+    physicsInputsRef.current.dragVelocity = 0;
   };
+
   const onPointerMove = (e: React.PointerEvent) => {
     if (!isDraggingRef.current) return;
-    const dx = dragStartXRef.current - e.clientX;
-    targetProgressRef.current = Math.min(
-      1,
-      Math.max(0, dragStartProgressRef.current + dx / (viewport.width * 0.85))
-    );
+    const now = performance.now();
+    const dt = Math.max(0.001, (now - dragLastTimeRef.current) / 1000);
+    const dx = e.clientX - dragLastXRef.current;
+
+    // Convert screen drag delta to track velocity (inverted since dragging right drives car forward)
+    const v = (dx / dt) * 1.4;
+    physicsInputsRef.current.dragVelocity = v;
+
+    dragLastXRef.current = e.clientX;
+    dragLastTimeRef.current = now;
   };
+
   const onPointerUp = () => {
+    if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
+    physicsInputsRef.current.isDragging = false;
+    // Release fling velocity naturally into physics momentum
+    physicsInputsRef.current.impulseVelocity = physicsInputsRef.current.dragVelocity * 0.6;
+    physicsInputsRef.current.dragVelocity = 0;
   };
 
   // ================================================
-  // ANIMATION LOOP (Ultra-smooth physics, LERP & camera)
+  // MAIN ANIMATION & GRAVITY PHYSICS LOOP
   // ================================================
   useEffect(() => {
     let raf: number;
     let lastTime = performance.now();
+    const audioEngine = getAudioEngine();
 
     const loop = (time: number) => {
-      const dt = Math.min(0.05, (time - lastTime) / 1000) || 0.016;
+      const dt = Math.min(0.045, (time - lastTime) / 1000) || 0.016;
       lastTime = time;
-
-      // Apply velocity momentum with natural decay friction
-      if (Math.abs(scrollVelocityRef.current) > 0.000002) {
-        targetProgressRef.current = Math.min(
-          1,
-          Math.max(0, targetProgressRef.current + scrollVelocityRef.current)
-        );
-        scrollVelocityRef.current *= 0.89; // Buttery friction deceleration
-      } else {
-        scrollVelocityRef.current = 0;
-      }
-
-      // Frame-rate independent spring LERP for ultra-smooth gliding motion
-      const prevProg = currentProgressRef.current;
-      const lerpSpeed = 1 - Math.exp(-8.5 * dt);
-      currentProgressRef.current +=
-        (targetProgressRef.current - currentProgressRef.current) * lerpSpeed;
-      const prog = currentProgressRef.current;
 
       const path = pathRef.current;
       if (path && pathLength > 0) {
-        const dist = Math.min(pathLength, Math.max(0, prog * pathLength));
-        const dd = dist - prevDistRef.current;
-        prevDistRef.current = dist;
-        wheelRotRef.current += (dd / 38) * 360;
+        // 1. Sample track at current distance
+        const currentDist = physicsStateRef.current.distance;
+        const trackSample = sampleTrack(path, currentDist, pathLength);
 
-        const velocity = (prog - prevProg) / (dt || 0.016);
-        const isBraking = velocity < -0.0005;
+        // 2. Step physics simulation (gravity, drive, braking, drag, G-force)
+        const currentConfig = VEHICLE_CONFIGS[vehicleRef.current];
+        const nextPhysics = stepPhysics(
+          physicsStateRef.current,
+          physicsInputsRef.current,
+          trackSample,
+          currentConfig,
+          pathLength,
+          dt
+        );
+        physicsStateRef.current = nextPhysics;
 
-        const pt = path.getPointAtLength(dist);
-        const d1 = Math.max(0, dist - 1.5);
-        const d2 = Math.min(pathLength, dist + 1.5);
-        const p1 = path.getPointAtLength(d1);
-        const p2 = path.getPointAtLength(d2);
-        let raw = (Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180) / Math.PI;
-        if (isNaN(raw)) raw = 0;
-
-        let diff = raw - (prevAngleRef.current % 360);
+        // 3. Smooth angle unwrapping for loop-the-loop inversion
+        let rawAngle = trackSample.angleDeg;
+        let diff = rawAngle - (prevAngleRef.current % 360);
         while (diff < -180) diff += 360;
         while (diff > 180) diff -= 360;
         const unwrapped = prevAngleRef.current + diff;
         prevAngleRef.current = unwrapped;
 
-        // Subtle suspension pitch/lean into acceleration
-        const suspensionPitch = Math.max(-4, Math.min(4, velocity * 35));
-        const finalAngle = unwrapped + suspensionPitch;
+        // Final orientation including dynamic suspension lean
+        const finalAngle = unwrapped + nextPhysics.suspensionPitch;
 
         setVehiclePos({
-          x: pt.x,
-          y: pt.y,
+          x: trackSample.pt.x,
+          y: trackSample.pt.y,
           angle: finalAngle,
-          wheelRot: wheelRotRef.current,
-          isBraking,
+          wheelRot: nextPhysics.wheelRot,
+          isBraking: nextPhysics.isBraking,
         });
 
-        // Smooth cinematic camera tracking with subtle lookahead
-        const tCamX = pt.x - viewport.width * 0.38 + velocity * 250;
-        const tCamY = (pt.y - viewport.height * 0.5) * 0.5;
+        // 4. Update audio engine with real-time physics parameters
+        audioEngine.update(nextPhysics, vehicleRef.current);
+
+        // 5. Cinematic camera tracking with velocity-based lookahead
+        const tCamX = trackSample.pt.x - viewport.width * 0.38 + nextPhysics.velocity * 0.35;
+        const tCamY = (trackSample.pt.y - viewport.height * 0.5) * 0.5;
+
         if (isFirstFrameRef.current) {
           isFirstFrameRef.current = false;
           setCamera({ x: tCamX, y: tCamY });
@@ -335,12 +437,14 @@ export default function HomePage() {
           }));
         }
 
-        // Spawn exhaust / dust particles when vehicle drives fast
-        if ((vehicle === 'car' || vehicle === 'moto') && Math.abs(velocity) > 0.001) {
+        // 6. Spawn exhaust / dust particles when driving or skidding
+        const isMotorized = vehicleRef.current === 'car' || vehicleRef.current === 'moto';
+        const isHighPower = Math.abs(nextPhysics.velocity) > 80 && (nextPhysics.throttleApplied || nextPhysics.isSkidding);
+
+        if (isMotorized && isHighPower) {
           const rad = (finalAngle * Math.PI) / 180;
-          // Offset near rear tire contact
-          const rx = pt.x - 28 * Math.cos(rad);
-          const ry = pt.y - 28 * Math.sin(rad) - 6;
+          const rx = trackSample.pt.x - 28 * Math.cos(rad);
+          const ry = trackSample.pt.y - 28 * Math.sin(rad) - 6;
 
           setParticles((prev) => {
             const next = prev
@@ -348,34 +452,39 @@ export default function HomePage() {
                 ...p,
                 x: p.x + p.vx,
                 y: p.y + p.vy,
-                alpha: p.alpha - 0.038,
+                alpha: p.alpha - (nextPhysics.isSkidding ? 0.025 : 0.038),
               }))
               .filter((p) => p.alpha > 0);
 
-            if (next.length < 22) {
+            if (next.length < 24) {
               particleIdRef.current += 1;
+              const isSkid = nextPhysics.isSkidding;
               next.push({
                 id: particleIdRef.current,
-                x: rx + (Math.random() - 0.5) * 6,
-                y: ry + (Math.random() - 0.5) * 4,
-                vx: -Math.cos(rad) * (1.8 + Math.random() * 2.2),
-                vy: -Math.random() * 1.2,
-                size: 2.2 + Math.random() * 3.8,
-                alpha: 0.55,
-                color: '#D97706',
+                x: rx + (Math.random() - 0.5) * 8,
+                y: ry + (Math.random() - 0.5) * 6,
+                vx: -Math.cos(rad) * (1.8 + Math.random() * 2.5),
+                vy: -Math.random() * (isSkid ? 2.2 : 1.2),
+                size: isSkid ? 3.5 + Math.random() * 4.5 : 2.2 + Math.random() * 3.5,
+                alpha: isSkid ? 0.75 : 0.55,
+                color: isSkid ? '#78716C' : vehicleRef.current === 'car' ? '#D97706' : '#EF4444',
               });
             }
             return next;
           });
         }
 
+        // 7. Update telemetry HUD
+        const prog = Math.min(1, Math.max(0, nextPhysics.distance / pathLength));
         setProgressVal(prog);
       }
+
       raf = requestAnimationFrame(loop);
     };
+
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [pathLength, viewport.width, viewport.height, vehicle]);
+  }, [pathLength, viewport.width, viewport.height]);
 
   const pct = Math.round(progressVal * 100);
 
@@ -387,11 +496,6 @@ export default function HomePage() {
       className="fixed inset-0 w-full h-full overflow-hidden select-none touch-none cursor-grab active:cursor-grabbing"
       style={{ background: '#ffffff' }}
     >
-      {/* Hidden path for sampling */}
-      <svg className="absolute w-0 h-0 pointer-events-none opacity-0" aria-hidden="true">
-        <path ref={pathRef} d={trackPathD} fill="none" />
-      </svg>
-
       {/* ======== WORLD LAYER ======== */}
       <div
         className="absolute top-0 left-0 will-change-transform"
@@ -406,6 +510,9 @@ export default function HomePage() {
           style={{ width: '5000px', height: '750px' }}
           viewBox="0 0 5000 750"
         >
+          {/* Track path reference for geometry sampling */}
+          <path ref={pathRef} d={trackPathD} fill="none" stroke="transparent" />
+
           {/* Tire dust / smoke particles */}
           <g className="particles-layer">
             {particles.map((p) => (
@@ -420,7 +527,7 @@ export default function HomePage() {
             ))}
           </g>
 
-          {/* Letters */}
+          {/* Letters along the track */}
           <g className="letters-layer">
             {letters.map((item, i) => (
               <text
@@ -633,7 +740,7 @@ export default function HomePage() {
                       <line x1="83" y1="11" x2="67" y2="24" stroke="#333" strokeWidth="0.6" />
                       <path d="M 83,9 C 85,8 87,9 88,10" fill="none" stroke="#444" strokeWidth="1" />
 
-                      {/* Front leg (Clear skin tone + white socks so movement is obvious!) */}
+                      {/* Front leg */}
                       <polygon points={`${hx - 2},${hy} ${hx + 4},${hy - 1} ${k1x + 4},${k1y + 1} ${k1x - 2},${k1y + 2}`} fill="#e5a672" stroke="#ca8a04" strokeWidth="0.4" />
                       <polygon points={`${hx - 2},${hy} ${hx + 4},${hy - 1} ${(hx * 0.45 + k1x * 0.55) + 3},${(hy * 0.45 + k1y * 0.55)} ${(hx * 0.45 + k1x * 0.55) - 2},${(hy * 0.45 + k1y * 0.55) + 1}`} fill="#181818" />
                       <line x1={(hx * 0.45 + k1x * 0.55) - 1.5} y1={(hy * 0.45 + k1y * 0.55) + 1} x2={(hx * 0.45 + k1x * 0.55) + 3} y2={(hy * 0.45 + k1y * 0.55)} stroke="#ffffff" strokeWidth="0.9" />
@@ -698,8 +805,18 @@ export default function HomePage() {
 
       {/* ======== UI ======== */}
 
-      {/* Progress bar — top right */}
+      {/* Progress bar & sound toggle — top right */}
       <div className="fixed top-5 right-5 z-40 flex items-center gap-2">
+        {/* Discreet audio toggle button: 🔊 / 🔇 */}
+        <button
+          onClick={handleToggleMute}
+          className="flex items-center justify-center w-8 h-8 rounded-full bg-white border border-neutral-200 text-neutral-600 hover:text-neutral-900 shadow-sm cursor-pointer transition-all active:scale-95"
+          title="Toggle Sound (M)"
+        >
+          <span className="text-xs">{!isAudioMuted && isAudioActive ? '🔊' : '🔇'}</span>
+        </button>
+
+        {/* Progress pill */}
         <div className="flex items-center gap-2 bg-white border border-neutral-200 px-3 py-1.5 rounded-full text-neutral-500 text-[11px] font-medium shadow-sm">
           <div className="w-16 h-1 bg-neutral-100 rounded-full overflow-hidden">
             <div
@@ -713,11 +830,14 @@ export default function HomePage() {
 
       {/* Toggle + instruction — bottom center */}
       <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3">
-        {/* Vehicle toggle: Car, Cycle A, Cycle B */}
-        <div className="flex items-center bg-white border border-neutral-200 rounded-full shadow-sm p-0.5">
+        {/* Vehicle toggle: Car, Moto, Cycle A, Cycle B */}
+        <div className="flex items-center bg-white border border-neutral-200 rounded-full shadow-sm p-0.5 whitespace-nowrap">
           <button
-            onClick={() => setVehicle('car')}
-            className={`px-3 py-1.5 text-[11px] font-semibold transition-all rounded-full cursor-pointer ${
+            onClick={() => {
+              setVehicle('car');
+              unlockAudio();
+            }}
+            className={`px-3 py-1.5 text-[11px] font-semibold transition-all rounded-full cursor-pointer whitespace-nowrap ${
               vehicle === 'car'
                 ? 'bg-neutral-900 text-white shadow-sm'
                 : 'text-neutral-400 hover:text-neutral-700'
@@ -726,8 +846,11 @@ export default function HomePage() {
             🚗 Car
           </button>
           <button
-            onClick={() => setVehicle('moto')}
-            className={`px-3 py-1.5 text-[11px] font-semibold transition-all rounded-full cursor-pointer ${
+            onClick={() => {
+              setVehicle('moto');
+              unlockAudio();
+            }}
+            className={`px-3 py-1.5 text-[11px] font-semibold transition-all rounded-full cursor-pointer whitespace-nowrap ${
               vehicle === 'moto'
                 ? 'bg-neutral-900 text-white shadow-sm'
                 : 'text-neutral-400 hover:text-neutral-700'
@@ -736,8 +859,11 @@ export default function HomePage() {
             🏍️ Moto
           </button>
           <button
-            onClick={() => setVehicle('bikeA')}
-            className={`px-3 py-1.5 text-[11px] font-semibold transition-all rounded-full cursor-pointer ${
+            onClick={() => {
+              setVehicle('bikeA');
+              unlockAudio();
+            }}
+            className={`px-3 py-1.5 text-[11px] font-semibold transition-all rounded-full cursor-pointer whitespace-nowrap ${
               vehicle === 'bikeA'
                 ? 'bg-neutral-900 text-white shadow-sm'
                 : 'text-neutral-400 hover:text-neutral-700'
@@ -746,8 +872,11 @@ export default function HomePage() {
             🚲 Cycle A
           </button>
           <button
-            onClick={() => setVehicle('bikeB')}
-            className={`px-3 py-1.5 text-[11px] font-semibold transition-all rounded-full cursor-pointer ${
+            onClick={() => {
+              setVehicle('bikeB');
+              unlockAudio();
+            }}
+            className={`px-3 py-1.5 text-[11px] font-semibold transition-all rounded-full cursor-pointer whitespace-nowrap ${
               vehicle === 'bikeB'
                 ? 'bg-neutral-900 text-white shadow-sm'
                 : 'text-neutral-400 hover:text-neutral-700'
@@ -757,15 +886,15 @@ export default function HomePage() {
           </button>
         </div>
 
-        {/* Instruction */}
-        <div className="flex items-center gap-2.5 bg-white border border-neutral-200 px-4 py-2 rounded-full text-neutral-400 text-[11px] font-medium shadow-sm">
+        {/* Clean minimal instruction pill */}
+        <div className="flex items-center gap-2.5 bg-white border border-neutral-200 px-4 py-2 rounded-full text-neutral-400 text-[11px] font-medium shadow-sm whitespace-nowrap">
           <span>scroll · drag · arrow keys</span>
         </div>
       </div>
 
       {/* Google Font import */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
       `}</style>
     </div>
   );
