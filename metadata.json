@@ -1,6 +1,7 @@
 {
-  "name": "Car Over Text Animation",
-  "description": "Exact animation of a car driving over custom text tracks including the ribbon loop, valley dip, and storefront scenes from the videos.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "name": "car-over-text",
+  "description": "Drive a vintage car, sport motorbike and cycles over text along a loop-the-loop track. Scroll, drag or use arrow keys to ride.",
+  "author": "shubhu121 (https://github.com/shubhu121, https://x.com/positronx_)",
+  "homepage": "https://github.com/shubhu121/car-over-text",
+  "requestFramePermissions": []
 }
