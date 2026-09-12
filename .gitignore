@@ -6,3 +6,5 @@ coverage/
 .env*
 !.env.example
 final_clean.png
+fluid_motion.png
+zero_jitter.png

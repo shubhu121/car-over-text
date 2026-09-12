@@ -1,6 +1,6 @@
 import React from 'react';
 export interface MotorbikeProps { wheelRotation?: number; width?: number; height?: number; className?: string; headlightsOn?: boolean; isBraking?: boolean; }
-export const Motorbike: React.FC<MotorbikeProps> = ({ wheelRotation = 0, width = 240, height = 110, className = '', headlightsOn = true, isBraking = false }) => {
+export const Motorbike: React.FC<MotorbikeProps> = React.memo(({ wheelRotation = 0, width = 240, height = 110, className = '', headlightsOn = true, isBraking = false }) => {
   return (
     <svg width={width} height={height} viewBox="0 0 240 110" fill="none" xmlns="http://www.w3.org/2000/svg" className={`select-none overflow-visible ${className}`} aria-label="Sport Motorbike">
       <defs>
@@ -16,7 +16,7 @@ export const Motorbike: React.FC<MotorbikeProps> = ({ wheelRotation = 0, width =
       </defs>
       {headlightsOn && <polygon points="208,52 285,38 285,72 208,60" fill="url(#mbBeam)" opacity="0.55" />}
       <ellipse cx="122" cy="104" rx="78" ry="4.5" fill="#000" opacity="0.14" />
-      <g transform={`rotate(${wheelRotation} 60 84)`}>
+      <g className="rear-wheel" transform={`rotate(${wheelRotation} 60 84)`}>
         <circle cx="60" cy="84" r="19" fill="#111827" stroke="#020617" strokeWidth="1.4" />
         {[0,30,60,90,120,150,180,210,240,270,300,330].map((d) => (
           <line key={`rt${d}`} x1={60+15.5*Math.cos(d*Math.PI/180)} y1={84+15.5*Math.sin(d*Math.PI/180)} x2={60+18.6*Math.cos(d*Math.PI/180)} y2={84+18.6*Math.sin(d*Math.PI/180)} stroke="#334155" strokeWidth="1.6" />
@@ -27,7 +27,7 @@ export const Motorbike: React.FC<MotorbikeProps> = ({ wheelRotation = 0, width =
         ))}
         <circle cx="60" cy="84" r="3.6" fill="url(#mbChrome)" stroke="#0F172A" strokeWidth="0.8" />
       </g>
-      <g transform={`rotate(${wheelRotation} 184 84)`}>
+      <g className="front-wheel" transform={`rotate(${wheelRotation} 184 84)`}>
         <circle cx="184" cy="84" r="19" fill="#111827" stroke="#020617" strokeWidth="1.4" />
         {[0,30,60,90,120,150,180,210,240,270,300,330].map((d) => (
           <line key={`ft${d}`} x1={184+15.5*Math.cos(d*Math.PI/180)} y1={84+15.5*Math.sin(d*Math.PI/180)} x2={184+18.6*Math.cos(d*Math.PI/180)} y2={84+18.6*Math.sin(d*Math.PI/180)} stroke="#334155" strokeWidth="1.6" />
@@ -75,4 +75,4 @@ export const Motorbike: React.FC<MotorbikeProps> = ({ wheelRotation = 0, width =
       <text x="138" y="62.2" textAnchor="middle" fontSize="6.5" fontWeight="900" fill="#B91C1C" fontFamily="Arial,sans-serif">46</text>
     </svg>
   );
-};
+});

@@ -36,8 +36,294 @@ interface Particle {
 // Pre-computed spoke offsets for 24-spoke bicycle wheels (radius 16)
 const BIKE_SPOKE_OFFSETS_24: { dx: number; dy: number }[] = Array.from({ length: 24 }, (_, i) => {
   const rad = (i * 15 * Math.PI) / 180;
-  return { dx: Math.round(16 * Math.cos(rad) * 1000) / 1000, dy: Math.round(16 * Math.sin(rad) * 1000) / 1000 };
+  return {
+    dx: Math.round(16 * Math.cos(rad) * 1000) / 1000,
+    dy: Math.round(16 * Math.sin(rad) * 1000) / 1000,
+  };
 });
+
+// ==================================================================
+// MEMOIZED SUB-COMPONENTS (Eliminate 95%+ of React virtual DOM diffing)
+// ==================================================================
+
+/**
+ * Static letters along the track path (rendered once and never re-evaluated)
+ */
+const TrackLetters = React.memo(function TrackLetters({ letters }: { letters: LetterItem[] }) {
+  return (
+    <g className="letters-layer">
+      {letters.map((item, i) => (
+        <text
+          key={`l-${i}`}
+          x={item.x}
+          y={item.y}
+          textAnchor="middle"
+          dominantBaseline="central"
+          transform={`rotate(${item.angle}, ${item.x}, ${item.y})`}
+          fill="#1a1a1a"
+          className="select-none pointer-events-none"
+          style={{
+            fontFamily: '"Poppins", sans-serif',
+            fontSize: '13px',
+            fontWeight: 400,
+            letterSpacing: '0.02em',
+          }}
+        >
+          {item.char}
+        </text>
+      ))}
+    </g>
+  );
+});
+
+/**
+ * Dynamic tire dust & smoke particles
+ */
+const TrackParticles = React.memo(function TrackParticles({
+  particles,
+}: {
+  particles: Particle[];
+}) {
+  if (particles.length === 0) return null;
+  return (
+    <g className="particles-layer">
+      {particles.map((p) => (
+        <circle
+          key={`p-${p.id}`}
+          cx={p.x}
+          cy={p.y}
+          r={p.size}
+          fill={p.color}
+          opacity={p.alpha}
+        />
+      ))}
+    </g>
+  );
+});
+
+/**
+ * Cycle A: Precision 2D Vector Road Bike & Articulated Cyclist
+ */
+const CycleA = React.memo(function CycleA({
+  wheelRot,
+}: {
+  wheelRot: number;
+}) {
+  const pa = (wheelRot * 1.5 * Math.PI) / 180;
+  const cl = 13;
+  const bx = 72;
+  const by = 78;
+  const f1x = bx + cl * Math.cos(pa);
+  const f1y = by + cl * Math.sin(pa);
+  const f2x = bx - cl * Math.cos(pa);
+  const f2y = by - cl * Math.sin(pa);
+
+  const hx = 58;
+  const hy = 26;
+  const k1x = (f1x + hx) / 2 - 3.5;
+  const k1y = (f1y + hy) / 2 - 11.5;
+  const k2x = (f2x + hx) / 2 - 3.5;
+  const k2y = (f2y + hy) / 2 - 11.5;
+
+  return (
+    <g transform="translate(-25, -41) scale(0.35)">
+      {/* Ground contact shadow */}
+      <ellipse cx="74" cy="100" rx="58" ry="3.5" fill="#000" opacity="0.1" />
+
+      {/* ======== REAR WHEEL (Deep-Section Carbon Aero) ======== */}
+      <g transform={`rotate(${wheelRot}, 28, 82)`}>
+        <circle cx="28" cy="82" r="22" fill="none" stroke="#141414" strokeWidth="4.2" />
+        <circle cx="28" cy="82" r="19.8" fill="none" stroke="#252525" strokeWidth="0.8" />
+        <circle cx="28" cy="82" r="16.5" fill="none" stroke="#202020" strokeWidth="6.5" />
+        <circle cx="28" cy="82" r="18.5" fill="none" stroke="#2a2a2a" strokeWidth="0.8" />
+        <circle cx="28" cy="82" r="13.2" fill="none" stroke="#333333" strokeWidth="0.8" />
+        {BIKE_SPOKE_OFFSETS_24.map((s, i) => (
+          <line
+            key={`brs-${i}`}
+            x1="28"
+            y1="82"
+            x2={28 + s.dx * 0.82}
+            y2={82 + s.dy * 0.82}
+            stroke="#3a3a3a"
+            strokeWidth="0.65"
+          />
+        ))}
+        <circle cx="28" cy="82" r="8.2" fill="#3a3a3a" stroke="#555" strokeWidth="0.8" />
+        <circle cx="28" cy="82" r="6.2" fill="#202020" />
+        {[0, 60, 120, 180, 240, 300].map((deg) => {
+          const rad = (deg * Math.PI) / 180;
+          return (
+            <circle
+              key={`rrh-${deg}`}
+              cx={28 + 7.2 * Math.cos(rad)}
+              cy={82 + 7.2 * Math.sin(rad)}
+              r="0.7"
+              fill="#141414"
+            />
+          );
+        })}
+        <circle cx="28" cy="82" r="4.2" fill="#181818" stroke="#333" strokeWidth="0.8" />
+        <circle cx="28" cy="82" r="1.5" fill="#666" />
+      </g>
+
+      {/* ======== FRONT WHEEL (Deep-Section Carbon Aero) ======== */}
+      <g transform={`rotate(${wheelRot}, 120, 82)`}>
+        <circle cx="120" cy="82" r="22" fill="none" stroke="#141414" strokeWidth="4.2" />
+        <circle cx="120" cy="82" r="19.8" fill="none" stroke="#252525" strokeWidth="0.8" />
+        <circle cx="120" cy="82" r="16.5" fill="none" stroke="#202020" strokeWidth="6.5" />
+        <circle cx="120" cy="82" r="18.5" fill="none" stroke="#2a2a2a" strokeWidth="0.8" />
+        <circle cx="120" cy="82" r="13.2" fill="none" stroke="#333333" strokeWidth="0.8" />
+        {BIKE_SPOKE_OFFSETS_24.map((s, i) => (
+          <line
+            key={`bfs-${i}`}
+            x1="120"
+            y1="82"
+            x2={120 + s.dx * 0.82}
+            y2={82 + s.dy * 0.82}
+            stroke="#3a3a3a"
+            strokeWidth="0.65"
+          />
+        ))}
+        <circle cx="120" cy="82" r="8.2" fill="#3a3a3a" stroke="#555" strokeWidth="0.8" />
+        <circle cx="120" cy="82" r="6.2" fill="#202020" />
+        {[0, 60, 120, 180, 240, 300].map((deg) => {
+          const rad = (deg * Math.PI) / 180;
+          return (
+            <circle
+              key={`frh-${deg}`}
+              cx={120 + 7.2 * Math.cos(rad)}
+              cy={82 + 7.2 * Math.sin(rad)}
+              r="0.7"
+              fill="#141414"
+            />
+          );
+        })}
+        <circle cx="120" cy="82" r="4.2" fill="#181818" stroke="#333" strokeWidth="0.8" />
+        <circle cx="120" cy="82" r="1.5" fill="#666" />
+      </g>
+
+      {/* ======== DISC BRAKE CALIPERS & HYDRAULIC LINES ======== */}
+      <rect x="23" y="74" width="5.5" height="4.5" rx="1.2" fill="#151515" stroke="#333" strokeWidth="0.6" />
+      <rect x="114" y="74" width="5.5" height="4.5" rx="1.2" fill="#151515" stroke="#333" strokeWidth="0.6" />
+      <path d="M 115,74 C 114,64 110,48 106,38" fill="none" stroke="#262626" strokeWidth="0.8" />
+      <path d="M 24,74 C 36,76 60,78 106,38" fill="none" stroke="#262626" strokeWidth="0.8" />
+
+      {/* ======== AERO CARBON FRAME ======== */}
+      <path d="M 67,78 L 28,84 L 28,80 L 72,75 Z" fill="#1a1a1a" stroke="#141414" strokeWidth="0.8" />
+      <path d="M 58,37 L 28,81 L 31,83 L 61,39 Z" fill="#262626" stroke="#181818" strokeWidth="0.8" />
+      <path d="M 58,34 L 63,34 L 75,77 L 67,81 C 59,70 54,54 58,34 Z" fill="#1e1e1e" stroke="#161616" strokeWidth="0.8" />
+      <path d="M 102,38 L 106,44 L 76,82 L 67,78 Z" fill="#1e1e1e" stroke="#161616" strokeWidth="0.8" />
+      <path d="M 103,40 L 73,78 L 76,82 L 106,44 Z" fill="#282828" opacity="0.6" />
+      <line x1="95" y1="46" x2="81" y2="64" stroke="#ffffff" strokeWidth="0.8" opacity="0.85" />
+      <path d="M 104,32 L 104,37 L 58,40 L 58,35 Z" fill="#242424" stroke="#181818" strokeWidth="0.8" />
+      <line x1="104" y1="32" x2="58" y2="35" stroke="#3d3d3d" strokeWidth="0.8" />
+      <path d="M 102,31 L 106,31 L 106,46 L 102,46 Z" fill="#262626" stroke="#181818" strokeWidth="0.8" />
+      <rect x="104" y="36" width="1.8" height="4" rx="0.4" fill="#888" />
+      <path d="M 102,45 L 106,45 L 122,83 L 118,83 Z" fill="#202020" stroke="#161616" strokeWidth="0.8" />
+      <rect x="101" y="44" width="6" height="2.5" rx="1" fill="#181818" />
+
+      {/* ======== COCKPIT & ELECTRONICS ======== */}
+      <polygon points="103,32 112,30 113,34 104,36" fill="#181818" />
+      <path d="M 112,30 C 117,30 120,33 118,39 L 115,39 C 116,35 114,33 111,33 Z" fill="#202020" />
+      <line x1="113" y1="31" x2="113" y2="34" stroke="#333" strokeWidth="0.6" />
+      <line x1="115" y1="32" x2="115" y2="35" stroke="#333" strokeWidth="0.6" />
+      <rect x="116" y="31" width="4.5" height="5" rx="1.5" fill="#2c2c2c" stroke="#1a1a1a" strokeWidth="0.5" />
+      <line x1="117" y1="35" x2="116" y2="41" stroke="#555" strokeWidth="1.2" strokeLinecap="round" />
+      <rect x="112" y="26" width="5.5" height="4.5" rx="1" fill="#111" stroke="#333" strokeWidth="0.4" />
+      <rect x="112.8" y="26.8" width="3.9" height="2.9" rx="0.5" fill="#38bdf8" opacity="0.9" />
+
+      {/* ======== SADDLE & REAR TAILLIGHT ======== */}
+      <polygon points="57,28 61,28 62,36 58,36" fill="#181818" />
+      <path d="M 48,25 C 51,23 58,22 64,23 C 68,23.5 70,25 69,27 C 67,29 60,30 55,29 C 50,29 47,27 48,25 Z" fill="#1c1c1c" stroke="#111" strokeWidth="0.6" />
+      <line x1="53" y1="26" x2="62" y2="26" stroke="#111" strokeWidth="0.8" />
+      <line x1="51" y1="27" x2="63" y2="27" stroke="#444" strokeWidth="0.8" />
+      <rect x="55.5" y="31" width="2.2" height="4.2" rx="0.8" fill="#ef4444" opacity="0.95" />
+
+      {/* ======== DRIVETRAIN ======== */}
+      <circle cx="72" cy="78" r="11" fill="#181818" stroke="#2e2e2e" strokeWidth="0.8" />
+      <circle cx="72" cy="78" r="9" fill="#222" stroke="#282828" strokeWidth="0.6" />
+      <circle cx="72" cy="78" r="11.5" fill="none" stroke="#444" strokeWidth="0.6" strokeDasharray="1.2 1" />
+      {[0, 72, 144, 216, 288].map((deg) => {
+        const rad = (deg * Math.PI) / 180;
+        return <circle key={`cbolt-${deg}`} cx={72 + 7.5 * Math.cos(rad)} cy={78 + 7.5 * Math.sin(rad)} r="0.8" fill="#555" />;
+      })}
+      <circle cx="28" cy="82" r="5.5" fill="#3a3a3a" stroke="#555" strokeWidth="0.8" />
+      <polygon points="26,85 30,85 32,90 28,91" fill="#202020" stroke="#151515" strokeWidth="0.5" />
+      <circle cx="30" cy="87" r="1.5" fill="#333" />
+      <circle cx="29" cy="91" r="1.5" fill="#333" />
+      <line x1="72" y1="67" x2="28" y2="76.5" stroke="#444" strokeWidth="1.2" />
+      <line x1="72" y1="89" x2="28" y2="87.5" stroke="#444" strokeWidth="1.2" />
+      <line x1="72" y1="67" x2="28" y2="76.5" stroke="#666" strokeWidth="0.4" strokeDasharray="2 1.5" />
+
+      {/* ======== DUAL WATER BOTTLES ======== */}
+      <rect x="80.5" y="54" width="3.5" height="15" rx="1.5" fill="#2a2a2a" stroke="#1c1c1c" strokeWidth="0.5" />
+      <rect x="81" y="53" width="2.5" height="2" rx="0.8" fill="#444" />
+      <line x1="81" y1="60" x2="83.5" y2="60" stroke="#888" strokeWidth="0.5" />
+      <rect x="63" y="47" width="3.5" height="13" rx="1.5" fill="#2a2a2a" stroke="#1c1c1c" strokeWidth="0.5" transform="rotate(-15, 63, 47)" />
+
+      {/* ======== PEDALS + MUSCULAR RIDER ======== */}
+      {/* Back crank */}
+      <line x1={bx} y1={by} x2={f2x} y2={f2y} stroke="#888" strokeWidth="2.8" strokeLinecap="round" />
+
+      {/* Back leg */}
+      <polygon points={`${hx - 2},${hy + 1} ${hx + 3},${hy} ${k2x + 3},${k2y + 2} ${k2x - 2},${k2y + 3}`} fill="#ba7c48" />
+      <polygon points={`${hx - 2},${hy + 1} ${hx + 3},${hy} ${(hx * 0.45 + k2x * 0.55) + 2.5},${(hy * 0.45 + k2y * 0.55) + 1} ${(hx * 0.45 + k2x * 0.55) - 2},${(hy * 0.45 + k2y * 0.55) + 2}`} fill="#161616" />
+      <path d={`M ${k2x - 1},${k2y + 1} C ${k2x - 3},${(k2y + f2y) / 2} ${f2x - 3},${f2y - 2} ${f2x - 1},${f2y} L ${f2x + 2},${f2y} C ${f2x + 3},${f2y - 3} ${k2x + 3},${(k2y + f2y) / 2} ${k2x + 2},${k2y + 1} Z`} fill="#a86e3f" />
+      <rect x={f2x - 2} y={f2y - 4} width="4" height="3" rx="0.5" fill="#e5e5e5" />
+      <polygon points={`${f2x - 3},${f2y + 2} ${f2x + 6},${f2y + 2} ${f2x + 7},${f2y - 1} ${f2x + 4},${f2y - 3} ${f2x - 3},${f2y - 2}`} fill="#141414" />
+      <rect x={f2x - 4} y={f2y + 2} width="8" height="2.2" rx="0.7" fill="#f59e0b" />
+
+      {/* Back arm */}
+      <line x1="82" y1="10" x2="96" y2="19" stroke="#1c1c1c" strokeWidth="3.2" strokeLinecap="round" />
+      <line x1="96" y1="19" x2="114" y2="32" stroke="#1c1c1c" strokeWidth="2.8" strokeLinecap="round" />
+      <circle cx="114" cy="32" r="2.2" fill="#141414" />
+
+      {/* Torso */}
+      <path d="M 56,27 C 56,22 62,20 78,12 L 84,10 L 86,13 C 83,18 78,21 68,26 C 62,29 57,28 56,27 Z" fill="#202020" stroke="#161616" strokeWidth="0.8" />
+      <path d="M 64,22 C 72,17 78,14 83,11" stroke="#ffffff" strokeWidth="1.2" opacity="0.9" />
+      <rect x="56" y="24" width="4.5" height="3" rx="0.5" fill="#ffffff" opacity="0.85" />
+      <line x1="83" y1="11" x2="67" y2="24" stroke="#333" strokeWidth="0.6" />
+      <path d="M 83,9 C 85,8 87,9 88,10" fill="none" stroke="#444" strokeWidth="1" />
+
+      {/* Front leg */}
+      <polygon points={`${hx - 2},${hy} ${hx + 4},${hy - 1} ${k1x + 4},${k1y + 1} ${k1x - 2},${k1y + 2}`} fill="#e5a672" stroke="#ca8a04" strokeWidth="0.4" />
+      <polygon points={`${hx - 2},${hy} ${hx + 4},${hy - 1} ${(hx * 0.45 + k1x * 0.55) + 3},${(hy * 0.45 + k1y * 0.55)} ${(hx * 0.45 + k1x * 0.55) - 2},${(hy * 0.45 + k1y * 0.55) + 1}`} fill="#181818" />
+      <line x1={(hx * 0.45 + k1x * 0.55) - 1.5} y1={(hy * 0.45 + k1y * 0.55) + 1} x2={(hx * 0.45 + k1x * 0.55) + 3} y2={(hy * 0.45 + k1y * 0.55)} stroke="#ffffff" strokeWidth="0.9" />
+      <path d={`M ${k1x - 1},${k1y + 1} C ${k1x - 4},${(k1y + f1y) / 2} ${f1x - 3},${f1y - 2} ${f1x - 1},${f1y} L ${f1x + 3},${f1y} C ${f1x + 4},${f1y - 3} ${k1x + 4},${(k1y + f1y) / 2} ${k1x + 2},${k1y + 1} Z`} fill="#e5a672" stroke="#ca8a04" strokeWidth="0.4" />
+      <circle cx={k1x + 1} cy={k1y + 1} r="2.2" fill="#df9b64" />
+      <rect x={f1x - 2} y={f1y - 5} width="4.8" height="3.8" rx="0.6" fill="#ffffff" stroke="#e5e7eb" strokeWidth="0.4" />
+      <polygon points={`${f1x - 3},${f1y + 2} ${f1x + 7},${f1y + 2} ${f1x + 8},${f1y - 1} ${f1x + 5},${f1y - 3} ${f1x - 3},${f1y - 2}`} fill="#181818" stroke="#111" strokeWidth="0.5" />
+      <line x1={f1x - 3} y1={f1y + 2} x2={f1x + 7} y2={f1y + 2} stroke="#333" strokeWidth="1.2" />
+      <circle cx={f1x + 2} cy={f1y - 1.5} r="0.9" fill="#eab308" />
+      <rect x={f1x - 4} y={f1y + 2} width="8" height="2.5" rx="0.8" fill="#f59e0b" />
+
+      {/* Front crank */}
+      <line x1={bx} y1={by} x2={f1x} y2={f1y} stroke="#ddd" strokeWidth="3" strokeLinecap="round" />
+
+      {/* Front arm */}
+      <line x1="84" y1="11" x2="98" y2="20" stroke="#282828" strokeWidth="3.8" strokeLinecap="round" />
+      <line x1="98" y1="20" x2="116" y2="33" stroke="#262626" strokeWidth="3.2" strokeLinecap="round" />
+      <circle cx="98" cy="20" r="1.8" fill="#333" />
+      <circle cx="116" cy="33" r="2.5" fill="#181818" stroke="#333" strokeWidth="0.5" />
+      <line x1="114" y1="31" x2="118" y2="33" stroke="#ffffff" strokeWidth="0.6" opacity="0.85" />
+
+      {/* Head & Helmet */}
+      <line x1="85" y1="8" x2="82" y2="12" stroke="#222" strokeWidth="3" strokeLinecap="round" />
+      <path d="M 87,4 C 86,-2 92,-5 98,-5 C 104,-5 108,-1 106,4 C 104,8 98,9 93,8 C 88,8 86,6 87,4 Z" fill="#242424" stroke="#181818" strokeWidth="0.8" />
+      <polygon points="90,5 80,2 87,-1" fill="#1e1e1e" />
+      <line x1="93" y1="-3" x2="97" y2="-3.5" stroke="#3a3a3a" strokeWidth="0.8" strokeLinecap="round" />
+      <line x1="99" y1="-3.5" x2="103" y2="-2" stroke="#3a3a3a" strokeWidth="0.8" strokeLinecap="round" />
+      <path d="M 94,-1 L 98,-3 L 102,-1" fill="none" stroke="#ffffff" strokeWidth="0.8" opacity="0.85" />
+      <path d="M 94,3 C 97,1 102,1 105,3 C 106,5 104,6 100,6 C 96,6 94,5 94,3 Z" fill="#111" stroke="#333" strokeWidth="0.5" />
+      <line x1="96" y1="2.5" x2="102" y2="2.5" stroke="#777" strokeWidth="0.6" strokeLinecap="round" />
+      <polygon points="94,7 98,7 96,9" fill="#242424" />
+    </g>
+  );
+});
+
+// ==================================================================
+// MAIN HOMEPAGE COMPONENT
+// ==================================================================
 
 export default function HomePage() {
   const [vehicle, setVehicle] = useState<VehicleType>('car');
@@ -53,44 +339,50 @@ export default function HomePage() {
     dragVelocity: 0,
   });
 
+  // Continuous smoothing refs
+  const scrollImpulseRef = useRef<number>(0);
   const prevAngleRef = useRef<number>(0);
   const isFirstFrameRef = useRef<boolean>(true);
+  const cameraPosRef = useRef<{ x: number; y: number }>({ x: -400, y: 0 });
 
-  // Vehicle visual transform state
-  const [vehiclePos, setVehiclePos] = useState<{
-    x: number;
-    y: number;
-    angle: number;
-    wheelRot: number;
-    isBraking: boolean;
-  }>({ x: 50, y: 480, angle: 0, wheelRot: 0, isBraking: false });
+  // Hardware-accelerated direct DOM refs (eliminates per-frame React reconciliations & GC pauses)
+  const vehicleGRef = useRef<SVGGElement | null>(null);
+  const bikeBRef = useRef<HTMLDivElement | null>(null);
+  const particlesGRef = useRef<SVGGElement | null>(null);
+  const progressTextRef = useRef<HTMLSpanElement | null>(null);
+  const progressBarRef = useRef<HTMLDivElement | null>(null);
 
-  const [progressVal, setProgressVal] = useState<number>(0);
+  // Braking state (only toggles on change, zero per-frame renders)
+  const [isBraking, setIsBraking] = useState<boolean>(false);
+  const prevIsBrakingRef = useRef<boolean>(false);
+  const prevPctRef = useRef<number>(0);
 
-  // Audio system state
+  // Audio state
   const [isAudioMuted, setIsAudioMuted] = useState<boolean>(false);
   const [isAudioActive, setIsAudioActive] = useState<boolean>(false);
 
-  const [camera, setCamera] = useState<{ x: number; y: number }>({ x: -400, y: 0 });
+  // Camera viewport
   const [viewport, setViewport] = useState<{ width: number; height: number }>({
     width: 1200,
     height: 800,
   });
 
+  const worldRef = useRef<HTMLDivElement | null>(null);
   const pathRef = useRef<SVGPathElement | null>(null);
   const [letters, setLetters] = useState<LetterItem[]>([]);
   const [pathLength, setPathLength] = useState<number>(4000);
 
-  // Tire smoke & dust particles
-  const [particles, setParticles] = useState<Particle[]>([]);
+  // Tire smoke & dust particles (pre-allocated pool)
+  const particlesRef = useRef<Particle[]>([]);
   const particleIdRef = useRef<number>(0);
 
-  // Drag interaction tracking
+  // Drag interaction tracking with low-pass velocity filtering
   const isDraggingRef = useRef<boolean>(false);
   const dragLastXRef = useRef<number>(0);
   const dragLastTimeRef = useRef<number>(0);
+  const dragSmoothedVRef = useRef<number>(0);
 
-  // Keys held down for driving
+  // Keyboard keys
   const keysHeldRef = useRef<{ [key: string]: boolean }>({});
 
   // ================================================
@@ -105,37 +397,22 @@ export default function HomePage() {
   // ================================================
   const trackPathD = useMemo(() => {
     return [
-      // Gentle start runway
       'M 50,480',
       'C 250,480 500,480 750,480',
-      // Slight pre-dip before entering the loop (acceleration dip)
       'C 830,480 890,505 960,510',
-      // === TEARDROP LOOP-THE-LOOP (roller coaster vertical loop) ===
-      // Ascent to the bottom crossing intersection
       'C 1100,510 1255,460 1300,370',
-      // Rising up the right flank of the loop
       'C 1345,280 1395,210 1390,160',
-      // Reaching the top apex (completely inverted/upside-down!)
       'C 1385,110 1350,50 1300,50',
-      // Descending down the left flank of the loop
       'C 1250,50 1215,110 1210,160',
-      // Descending through the crossing intersection (forming the teardrop X)
       'C 1205,210 1255,280 1300,370',
-      // Exiting the loop downwards to the ground
       'C 1345,460 1500,510 1640,510',
-      // === POST-LOOP ROLLER COASTER SECTIONS ===
-      // Smooth recovery to ground level
       'C 1720,510 1780,480 1860,480',
-      // Big airtime hill (camelback)
       'C 1960,480 2040,360 2160,360',
       'C 2280,360 2360,480 2460,480',
-      // Second speed hump
       'C 2560,480 2640,410 2740,410',
       'C 2840,410 2920,480 3020,480',
-      // Third gentle swell
       'C 3140,480 3220,440 3320,440',
       'C 3420,440 3500,480 3600,480',
-      // High-speed flat runway to finish
       'L 4800,480',
     ].join(' ');
   }, []);
@@ -177,8 +454,8 @@ export default function HomePage() {
     while (dist < totalLen - 20) {
       const c = trackText[idx % trackText.length];
       const pt = path.getPointAtLength(dist);
-      const d1 = Math.max(0, dist - 1);
-      const d2 = Math.min(totalLen, dist + 1);
+      const d1 = Math.max(0, dist - 1.5);
+      const d2 = Math.min(totalLen, dist + 1.5);
       const p1 = path.getPointAtLength(d1);
       const p2 = path.getPointAtLength(d2);
       const angle = (Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180) / Math.PI;
@@ -204,8 +481,8 @@ export default function HomePage() {
 
   useEffect(() => {
     sampleLetters();
-    const timer = setTimeout(sampleLetters, 50);
-    const timer2 = setTimeout(sampleLetters, 200);
+    const timer = setTimeout(sampleLetters, 60);
+    const timer2 = setTimeout(sampleLetters, 220);
     return () => {
       clearTimeout(timer);
       clearTimeout(timer2);
@@ -231,22 +508,10 @@ export default function HomePage() {
     setIsAudioActive(!muted);
   }, []);
 
-  const handleHorn = useCallback(() => {
-    unlockAudio();
-    getAudioEngine().triggerHorn(vehicleRef.current);
-  }, [unlockAudio]);
-
-  // Automated test hook (e.g. ?test=1 or ?vehicle=moto)
+  // Automated test hook (e.g. ?vehicle=moto)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get('test') === '1') {
-      physicsInputsRef.current.throttle = 1;
-      const timer = setTimeout(() => {
-        physicsInputsRef.current.throttle = 0;
-      }, 2500);
-      return () => clearTimeout(timer);
-    }
     const vParam = params.get('vehicle');
     if (vParam && ['car', 'moto', 'bikeA', 'bikeB'].includes(vParam)) {
       setVehicle(vParam as VehicleType);
@@ -254,26 +519,9 @@ export default function HomePage() {
   }, []);
 
   // ================================================
-  // KEYBOARD & MOUSE CONTROLS (Physics integration)
+  // KEYBOARD & SCROLL CONTROLS
   // ================================================
   useEffect(() => {
-    const updateInputsFromKeys = () => {
-      const keys = keysHeldRef.current;
-      const isThrottling =
-        keys['ArrowRight'] ||
-        keys['KeyD'] ||
-        keys['ArrowDown'] ||
-        keys['KeyW'];
-      const isBraking =
-        keys['ArrowLeft'] ||
-        keys['KeyA'] ||
-        keys['ArrowUp'] ||
-        keys['KeyS'];
-
-      physicsInputsRef.current.throttle = isThrottling ? 1 : 0;
-      physicsInputsRef.current.brake = isBraking ? 1 : 0;
-    };
-
     const onKeyDown = (e: KeyboardEvent) => {
       unlockAudio();
 
@@ -295,7 +543,6 @@ export default function HomePage() {
       ) {
         e.preventDefault();
         keysHeldRef.current[e.code] = true;
-        updateInputsFromKeys();
       }
     };
 
@@ -306,7 +553,6 @@ export default function HomePage() {
         )
       ) {
         keysHeldRef.current[e.code] = false;
-        updateInputsFromKeys();
       }
     };
 
@@ -314,14 +560,11 @@ export default function HomePage() {
       e.preventDefault();
       unlockAudio();
       const raw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-      const clampedDelta = Math.sign(raw) * Math.min(Math.abs(raw), 70);
+      const clampedDelta = Math.sign(raw) * Math.min(Math.abs(raw), 75);
 
-      // Smooth, gentle scroll impulse for comfortable browsing speed
-      const impulse = clampedDelta * 0.75;
-      physicsInputsRef.current.impulseVelocity = Math.max(
-        -200,
-        Math.min(300, physicsInputsRef.current.impulseVelocity + impulse)
-      );
+      // Smooth kinetic impulse buffer for fluid gliding scroll feel
+      scrollImpulseRef.current += clampedDelta * 0.45;
+      scrollImpulseRef.current = Math.max(-250, Math.min(320, scrollImpulseRef.current));
     };
 
     window.addEventListener('keydown', onKeyDown);
@@ -343,6 +586,7 @@ export default function HomePage() {
     isDraggingRef.current = true;
     dragLastXRef.current = e.clientX;
     dragLastTimeRef.current = performance.now();
+    dragSmoothedVRef.current = 0;
     physicsInputsRef.current.isDragging = true;
     physicsInputsRef.current.dragVelocity = 0;
   };
@@ -353,9 +597,10 @@ export default function HomePage() {
     const dt = Math.max(0.001, (now - dragLastTimeRef.current) / 1000);
     const dx = e.clientX - dragLastXRef.current;
 
-    // Convert screen drag delta to track velocity (inverted since dragging right drives car forward)
-    const v = (dx / dt) * 1.4;
-    physicsInputsRef.current.dragVelocity = v;
+    // Convert screen drag delta to track velocity with low-pass filtering
+    const rawV = (dx / dt) * 1.35;
+    dragSmoothedVRef.current = dragSmoothedVRef.current * 0.55 + rawV * 0.45;
+    physicsInputsRef.current.dragVelocity = dragSmoothedVRef.current;
 
     dragLastXRef.current = e.clientX;
     dragLastTimeRef.current = now;
@@ -366,12 +611,12 @@ export default function HomePage() {
     isDraggingRef.current = false;
     physicsInputsRef.current.isDragging = false;
     // Release fling velocity naturally into physics momentum
-    physicsInputsRef.current.impulseVelocity = physicsInputsRef.current.dragVelocity * 0.6;
-    physicsInputsRef.current.dragVelocity = 0;
+    physicsInputsRef.current.impulseVelocity = dragSmoothedVRef.current * 0.55;
+    dragSmoothedVRef.current = 0;
   };
 
   // ================================================
-  // MAIN ANIMATION & GRAVITY PHYSICS LOOP
+  // MAIN ANIMATION & GRAVITY PHYSICS LOOP (120FPS FLUID)
   // ================================================
   useEffect(() => {
     let raf: number;
@@ -379,7 +624,7 @@ export default function HomePage() {
     const audioEngine = getAudioEngine();
 
     const loop = (time: number) => {
-      const dt = Math.min(0.045, (time - lastTime) / 1000) || 0.016;
+      const dt = Math.min(0.04, (time - lastTime) / 1000) || 0.016;
       lastTime = time;
 
       const path = pathRef.current;
@@ -388,7 +633,24 @@ export default function HomePage() {
         const currentDist = physicsStateRef.current.distance;
         const trackSample = sampleTrack(path, currentDist, pathLength);
 
-        // 2. Step physics simulation (gravity, drive, braking, drag, G-force)
+        // 2. Bleed scroll impulse smoothly into physics velocity with continuous momentum (~350ms duration)
+        if (Math.abs(scrollImpulseRef.current) > 0.05) {
+          const bleedRate = 1 - Math.exp(-6.5 * dt);
+          const deltaV = scrollImpulseRef.current * bleedRate;
+          scrollImpulseRef.current -= deltaV;
+          physicsInputsRef.current.impulseVelocity += deltaV;
+        } else {
+          scrollImpulseRef.current = 0;
+        }
+
+        // 3. Digital throttle & brake inputs (zero fractional chatter)
+        const keys = keysHeldRef.current;
+        physicsInputsRef.current.throttle =
+          keys['ArrowRight'] || keys['KeyD'] || keys['ArrowDown'] || keys['KeyW'] ? 1 : 0;
+        physicsInputsRef.current.brake =
+          keys['ArrowLeft'] || keys['KeyA'] || keys['ArrowUp'] || keys['KeyS'] ? 1 : 0;
+
+        // 4. Step physics simulation (gravity, drive, braking, drag, G-force)
         const currentConfig = VEHICLE_CONFIGS[vehicleRef.current];
         const nextPhysics = stepPhysics(
           physicsStateRef.current,
@@ -400,83 +662,144 @@ export default function HomePage() {
         );
         physicsStateRef.current = nextPhysics;
 
-        // 3. Smooth angle unwrapping for loop-the-loop inversion
-        let rawAngle = trackSample.angleDeg;
-        let diff = rawAngle - (prevAngleRef.current % 360);
-        while (diff < -180) diff += 360;
-        while (diff > 180) diff -= 360;
+        // 5. Canonical angle unwrapping (100% flush with track tangent, zero wobble)
+        const rawAngle = trackSample.angleDeg;
+        const diff = ((rawAngle - prevAngleRef.current + 180) % 360 + 360) % 360 - 180;
         const unwrapped = prevAngleRef.current + diff;
         prevAngleRef.current = unwrapped;
 
-        // Final orientation including dynamic suspension lean
-        const finalAngle = unwrapped + nextPhysics.suspensionPitch;
+        // 5. Synchronous GPU vehicle transform (100% in-sync with compositor & camera)
+        if (vehicleGRef.current) {
+          vehicleGRef.current.setAttribute(
+            'transform',
+            `translate(${trackSample.pt.x}, ${trackSample.pt.y}) rotate(${unwrapped})`
+          );
 
-        setVehiclePos({
-          x: trackSample.pt.x,
-          y: trackSample.pt.y,
-          angle: finalAngle,
-          wheelRot: nextPhysics.wheelRot,
-          isBraking: nextPhysics.isBraking,
-        });
-
-        // 4. Update audio engine with real-time physics parameters
-        audioEngine.update(nextPhysics, vehicleRef.current);
-
-        // 5. Cinematic camera tracking with velocity-based lookahead
-        const tCamX = trackSample.pt.x - viewport.width * 0.38 + nextPhysics.velocity * 0.35;
-        const tCamY = (trackSample.pt.y - viewport.height * 0.5) * 0.5;
-
-        if (isFirstFrameRef.current) {
-          isFirstFrameRef.current = false;
-          setCamera({ x: tCamX, y: tCamY });
-        } else {
-          const camLerp = 1 - Math.exp(-6.5 * dt);
-          setCamera((prev) => ({
-            x: prev.x + (tCamX - prev.x) * camLerp,
-            y: prev.y + (tCamY - prev.y) * camLerp,
-          }));
+          // Direct wheel rotation with zero React reconciliation
+          const rearWheel = vehicleGRef.current.querySelector('.rear-wheel');
+          const frontWheel = vehicleGRef.current.querySelector('.front-wheel');
+          if (rearWheel && frontWheel) {
+            if (vehicleRef.current === 'car') {
+              rearWheel.setAttribute('transform', `rotate(${nextPhysics.wheelRot} 72 84)`);
+              frontWheel.setAttribute('transform', `rotate(${nextPhysics.wheelRot} 176 84)`);
+            } else if (vehicleRef.current === 'moto') {
+              rearWheel.setAttribute('transform', `rotate(${nextPhysics.wheelRot} 60 84)`);
+              frontWheel.setAttribute('transform', `rotate(${nextPhysics.wheelRot} 184 84)`);
+            } else if (vehicleRef.current === 'bikeA') {
+              rearWheel.setAttribute('transform', `rotate(${nextPhysics.wheelRot}, 28, 82)`);
+              frontWheel.setAttribute('transform', `rotate(${nextPhysics.wheelRot}, 120, 82)`);
+            }
+          }
         }
 
-        // 6. Spawn exhaust / dust particles when driving or skidding
-        const isMotorized = vehicleRef.current === 'car' || vehicleRef.current === 'moto';
-        const isHighPower = Math.abs(nextPhysics.velocity) > 80 && (nextPhysics.throttleApplied || nextPhysics.isSkidding);
+        if (bikeBRef.current) {
+          bikeBRef.current.style.transform = `translate(${trackSample.pt.x}px, ${trackSample.pt.y}px) rotate(${unwrapped}deg)`;
+        }
 
+        // Only toggle braking state when it transitions (0 per-frame renders)
+        if (nextPhysics.isBraking !== prevIsBrakingRef.current) {
+          prevIsBrakingRef.current = nextPhysics.isBraking;
+          setIsBraking(nextPhysics.isBraking);
+        }
+
+        // 6. Update audio engine with real-time physics parameters
+        audioEngine.update(nextPhysics, vehicleRef.current);
+
+        // 7. Synchronous GPU camera tracking: horizontal lock eliminates relative micro-hitching
+        const tCamX = trackSample.pt.x - viewport.width * 0.38;
+        const tCamY = (trackSample.pt.y - viewport.height * 0.5) * 0.5;
+
+        let nextY = tCamY;
+        if (isFirstFrameRef.current) {
+          isFirstFrameRef.current = false;
+          cameraPosRef.current = { x: tCamX, y: tCamY };
+        } else {
+          const camLerpY = 1 - Math.exp(-8.0 * dt);
+          nextY = cameraPosRef.current.y + (tCamY - cameraPosRef.current.y) * camLerpY;
+          cameraPosRef.current = { x: tCamX, y: nextY };
+        }
+
+        // Direct hardware-accelerated GPU transform on the world layer
+        if (worldRef.current) {
+          worldRef.current.style.transform = `translate3d(${-tCamX}px, ${-nextY}px, 0)`;
+        }
+
+        // 8. Progress pill direct DOM update (zero VDOM reconciliation)
+        const prog = Math.min(1, Math.max(0, nextPhysics.distance / pathLength));
+        const nextPct = Math.round(prog * 100);
+        if (nextPct !== prevPctRef.current) {
+          prevPctRef.current = nextPct;
+          if (progressTextRef.current) {
+            progressTextRef.current.textContent = `${nextPct}%`;
+          }
+          if (progressBarRef.current) {
+            progressBarRef.current.style.width = `${nextPct}%`;
+          }
+        }
+
+        // 9. High-performance particle pooling (zero React state updates, zero allocations)
+        const isMotorized = vehicleRef.current === 'car' || vehicleRef.current === 'moto';
+        const isHighPower =
+          Math.abs(nextPhysics.velocity) > 80 &&
+          (nextPhysics.throttleApplied || nextPhysics.isSkidding);
+
+        let active = particlesRef.current;
         if (isMotorized && isHighPower) {
-          const rad = (finalAngle * Math.PI) / 180;
+          const rad = (unwrapped * Math.PI) / 180;
           const rx = trackSample.pt.x - 28 * Math.cos(rad);
           const ry = trackSample.pt.y - 28 * Math.sin(rad) - 6;
 
-          setParticles((prev) => {
-            const next = prev
-              .map((p) => ({
-                ...p,
-                x: p.x + p.vx,
-                y: p.y + p.vy,
-                alpha: p.alpha - (nextPhysics.isSkidding ? 0.025 : 0.038),
-              }))
-              .filter((p) => p.alpha > 0);
+          active = active
+            .map((p) => ({
+              ...p,
+              x: p.x + p.vx,
+              y: p.y + p.vy,
+              alpha: p.alpha - (nextPhysics.isSkidding ? 0.025 : 0.038),
+            }))
+            .filter((p) => p.alpha > 0);
 
-            if (next.length < 24) {
-              particleIdRef.current += 1;
-              const isSkid = nextPhysics.isSkidding;
-              next.push({
-                id: particleIdRef.current,
-                x: rx + (Math.random() - 0.5) * 8,
-                y: ry + (Math.random() - 0.5) * 6,
-                vx: -Math.cos(rad) * (1.8 + Math.random() * 2.5),
-                vy: -Math.random() * (isSkid ? 2.2 : 1.2),
-                size: isSkid ? 3.5 + Math.random() * 4.5 : 2.2 + Math.random() * 3.5,
-                alpha: isSkid ? 0.75 : 0.55,
-                color: isSkid ? '#78716C' : vehicleRef.current === 'car' ? '#D97706' : '#EF4444',
-              });
-            }
-            return next;
-          });
+          if (active.length < 24) {
+            particleIdRef.current += 1;
+            const isSkid = nextPhysics.isSkidding;
+            active.push({
+              id: particleIdRef.current,
+              x: rx + (Math.random() - 0.5) * 8,
+              y: ry + (Math.random() - 0.5) * 6,
+              vx: -Math.cos(rad) * (1.8 + Math.random() * 2.5),
+              vy: -Math.random() * (isSkid ? 2.2 : 1.2),
+              size: isSkid ? 3.5 + Math.random() * 4.5 : 2.2 + Math.random() * 3.5,
+              alpha: isSkid ? 0.75 : 0.55,
+              color: isSkid ? '#78716C' : vehicleRef.current === 'car' ? '#D97706' : '#EF4444',
+            });
+          }
+        } else if (active.length > 0) {
+          active = active
+            .map((p) => ({
+              ...p,
+              x: p.x + p.vx,
+              y: p.y + p.vy,
+              alpha: p.alpha - 0.045,
+            }))
+            .filter((p) => p.alpha > 0);
         }
+        particlesRef.current = active;
 
-        // 7. Update telemetry HUD
-        const prog = Math.min(1, Math.max(0, nextPhysics.distance / pathLength));
-        setProgressVal(prog);
+        if (particlesGRef.current) {
+          const circles = particlesGRef.current.children;
+          for (let i = 0; i < circles.length; i++) {
+            const circle = circles[i] as SVGCircleElement;
+            if (i < active.length) {
+              const p = active[i];
+              circle.setAttribute('cx', p.x.toFixed(1));
+              circle.setAttribute('cy', p.y.toFixed(1));
+              circle.setAttribute('r', p.size.toFixed(1));
+              circle.setAttribute('fill', p.color);
+              circle.setAttribute('opacity', p.alpha.toFixed(2));
+            } else if (circle.getAttribute('opacity') !== '0') {
+              circle.setAttribute('opacity', '0');
+            }
+          }
+        }
       }
 
       raf = requestAnimationFrame(loop);
@@ -486,8 +809,6 @@ export default function HomePage() {
     return () => cancelAnimationFrame(raf);
   }, [pathLength, viewport.width, viewport.height]);
 
-  const pct = Math.round(progressVal * 100);
-
   return (
     <div
       onPointerDown={onPointerDown}
@@ -496,13 +817,16 @@ export default function HomePage() {
       className="fixed inset-0 w-full h-full overflow-hidden select-none touch-none cursor-grab active:cursor-grabbing"
       style={{ background: '#ffffff' }}
     >
-      {/* ======== WORLD LAYER ======== */}
+      {/* ======== WORLD LAYER (Hardware accelerated, isolated layout) ======== */}
       <div
+        ref={worldRef}
         className="absolute top-0 left-0 will-change-transform"
         style={{
-          transform: `translate3d(${-camera.x}px, ${-camera.y}px, 0)`,
+          transform: 'translate3d(-400px, 0px, 0)',
           width: '5000px',
           height: '750px',
+          backfaceVisibility: 'hidden',
+          WebkitBackfaceVisibility: 'hidden',
         }}
       >
         <svg
@@ -513,269 +837,63 @@ export default function HomePage() {
           {/* Track path reference for geometry sampling */}
           <path ref={pathRef} d={trackPathD} fill="none" stroke="transparent" />
 
-          {/* Tire dust / smoke particles */}
-          <g className="particles-layer">
-            {particles.map((p) => (
-              <circle
-                key={`p-${p.id}`}
-                cx={p.x}
-                cy={p.y}
-                r={p.size}
-                fill={p.color}
-                opacity={p.alpha}
-              />
+          {/* Pre-allocated high-performance particle pool (zero VDOM allocations) */}
+          <g ref={particlesGRef} className="particles-layer pointer-events-none">
+            {Array.from({ length: 24 }, (_, i) => (
+              <circle key={i} cx="0" cy="0" r="0" fill="transparent" opacity="0" />
             ))}
           </g>
 
-          {/* Letters along the track */}
-          <g className="letters-layer">
-            {letters.map((item, i) => (
-              <text
-                key={`l-${i}`}
-                x={item.x}
-                y={item.y}
-                textAnchor="middle"
-                dominantBaseline="central"
-                transform={`rotate(${item.angle}, ${item.x}, ${item.y})`}
-                fill="#1a1a1a"
-                className="select-none pointer-events-none"
-                style={{
-                  fontFamily: '"Poppins", sans-serif',
-                  fontSize: '13px',
-                  fontWeight: 400,
-                  letterSpacing: '0.02em',
-                }}
-              >
-                {item.char}
-              </text>
-            ))}
-          </g>
+          {/* Memoized letters along the track */}
+          <TrackLetters letters={letters} />
 
-          {/* ---- CAR (Detailed vintage yellow car with beam & brake animation) ---- */}
+          {/* ---- CAR (Vintage yellow car) ---- */}
           {vehicle === 'car' && (
             <g
-              transform={`translate(${vehiclePos.x}, ${vehiclePos.y}) rotate(${vehiclePos.angle})`}
+              ref={vehicleGRef}
+              transform="translate(50, 480) rotate(0)"
               style={{ transformOrigin: '0px 0px' }}
               className="pointer-events-none"
             >
               <g transform="translate(-65, -60) scale(0.52)">
                 <Car
-                  wheelRotation={vehiclePos.wheelRot}
                   width={240}
                   height={110}
                   headlightsOn={true}
-                  isBraking={vehiclePos.isBraking}
+                  isBraking={isBraking}
                 />
               </g>
             </g>
           )}
 
-          {/* ---- MOTORBIKE (Red sport bike with rider, beam & brake glow) ---- */}
+          {/* ---- MOTORBIKE (Red sport bike) ---- */}
           {vehicle === 'moto' && (
             <g
-              transform={`translate(${vehiclePos.x}, ${vehiclePos.y}) rotate(${vehiclePos.angle})`}
+              ref={vehicleGRef}
+              transform="translate(50, 480) rotate(0)"
               style={{ transformOrigin: '0px 0px' }}
               className="pointer-events-none"
             >
               <g transform="translate(-65, -60) scale(0.52)">
                 <Motorbike
-                  wheelRotation={vehiclePos.wheelRot}
                   width={240}
                   height={110}
                   headlightsOn={true}
-                  isBraking={vehiclePos.isBraking}
+                  isBraking={isBraking}
                 />
               </g>
             </g>
           )}
 
-          {/* ---- CYCLE A (Original 2D Vector Bike with high-contrast pedaling legs) ---- */}
+          {/* ---- CYCLE A (Memoized 2D Vector Bike & Articulated Rider) ---- */}
           {vehicle === 'bikeA' && (
             <g
-              transform={`translate(${vehiclePos.x}, ${vehiclePos.y}) rotate(${vehiclePos.angle})`}
+              ref={vehicleGRef}
+              transform="translate(50, 480) rotate(0)"
               style={{ transformOrigin: '0px 0px' }}
               className="pointer-events-none"
             >
-              <g transform="translate(-25, -41) scale(0.35)">
-                {/* Ground contact shadow */}
-                <ellipse cx="74" cy="100" rx="58" ry="3.5" fill="#000" opacity="0.1" />
-
-                {/* ======== REAR WHEEL (Deep-Section Carbon Aero) ======== */}
-                <g transform={`rotate(${vehiclePos.wheelRot}, 28, 82)`}>
-                  <circle cx="28" cy="82" r="22" fill="none" stroke="#141414" strokeWidth="4.2" />
-                  <circle cx="28" cy="82" r="19.8" fill="none" stroke="#252525" strokeWidth="0.8" />
-                  <circle cx="28" cy="82" r="16.5" fill="none" stroke="#202020" strokeWidth="6.5" />
-                  <circle cx="28" cy="82" r="18.5" fill="none" stroke="#2a2a2a" strokeWidth="0.8" />
-                  <circle cx="28" cy="82" r="13.2" fill="none" stroke="#333333" strokeWidth="0.8" />
-                  {BIKE_SPOKE_OFFSETS_24.map((s, i) => (
-                    <line key={`brs-${i}`} x1="28" y1="82" x2={28 + s.dx * 0.82} y2={82 + s.dy * 0.82} stroke="#3a3a3a" strokeWidth="0.65" />
-                  ))}
-                  <circle cx="28" cy="82" r="8.2" fill="#3a3a3a" stroke="#555" strokeWidth="0.8" />
-                  <circle cx="28" cy="82" r="6.2" fill="#202020" />
-                  {[0, 60, 120, 180, 240, 300].map((deg) => {
-                    const rad = (deg * Math.PI) / 180;
-                    return <circle key={`rrh-${deg}`} cx={28 + 7.2 * Math.cos(rad)} cy={82 + 7.2 * Math.sin(rad)} r="0.7" fill="#141414" />;
-                  })}
-                  <circle cx="28" cy="82" r="4.2" fill="#181818" stroke="#333" strokeWidth="0.8" />
-                  <circle cx="28" cy="82" r="1.5" fill="#666" />
-                </g>
-
-                {/* ======== FRONT WHEEL (Deep-Section Carbon Aero) ======== */}
-                <g transform={`rotate(${vehiclePos.wheelRot}, 120, 82)`}>
-                  <circle cx="120" cy="82" r="22" fill="none" stroke="#141414" strokeWidth="4.2" />
-                  <circle cx="120" cy="82" r="19.8" fill="none" stroke="#252525" strokeWidth="0.8" />
-                  <circle cx="120" cy="82" r="16.5" fill="none" stroke="#202020" strokeWidth="6.5" />
-                  <circle cx="120" cy="82" r="18.5" fill="none" stroke="#2a2a2a" strokeWidth="0.8" />
-                  <circle cx="120" cy="82" r="13.2" fill="none" stroke="#333333" strokeWidth="0.8" />
-                  {BIKE_SPOKE_OFFSETS_24.map((s, i) => (
-                    <line key={`bfs-${i}`} x1="120" y1="82" x2={120 + s.dx * 0.82} y2={82 + s.dy * 0.82} stroke="#3a3a3a" strokeWidth="0.65" />
-                  ))}
-                  <circle cx="120" cy="82" r="8.2" fill="#3a3a3a" stroke="#555" strokeWidth="0.8" />
-                  <circle cx="120" cy="82" r="6.2" fill="#202020" />
-                  {[0, 60, 120, 180, 240, 300].map((deg) => {
-                    const rad = (deg * Math.PI) / 180;
-                    return <circle key={`frh-${deg}`} cx={120 + 7.2 * Math.cos(rad)} cy={82 + 7.2 * Math.sin(rad)} r="0.7" fill="#141414" />;
-                  })}
-                  <circle cx="120" cy="82" r="4.2" fill="#181818" stroke="#333" strokeWidth="0.8" />
-                  <circle cx="120" cy="82" r="1.5" fill="#666" />
-                </g>
-
-                {/* ======== DISC BRAKE CALIPERS & HYDRAULIC LINES ======== */}
-                <rect x="23" y="74" width="5.5" height="4.5" rx="1.2" fill="#151515" stroke="#333" strokeWidth="0.6" />
-                <rect x="114" y="74" width="5.5" height="4.5" rx="1.2" fill="#151515" stroke="#333" strokeWidth="0.6" />
-                <path d="M 115,74 C 114,64 110,48 106,38" fill="none" stroke="#262626" strokeWidth="0.8" />
-                <path d="M 24,74 C 36,76 60,78 106,38" fill="none" stroke="#262626" strokeWidth="0.8" />
-
-                {/* ======== AERO CARBON FRAME ======== */}
-                <path d="M 67,78 L 28,84 L 28,80 L 72,75 Z" fill="#1a1a1a" stroke="#141414" strokeWidth="0.8" />
-                <path d="M 58,37 L 28,81 L 31,83 L 61,39 Z" fill="#262626" stroke="#181818" strokeWidth="0.8" />
-                <path d="M 58,34 L 63,34 L 75,77 L 67,81 C 59,70 54,54 58,34 Z" fill="#1e1e1e" stroke="#161616" strokeWidth="0.8" />
-                <path d="M 102,38 L 106,44 L 76,82 L 67,78 Z" fill="#1e1e1e" stroke="#161616" strokeWidth="0.8" />
-                <path d="M 103,40 L 73,78 L 76,82 L 106,44 Z" fill="#282828" opacity="0.6" />
-                <line x1="95" y1="46" x2="81" y2="64" stroke="#ffffff" strokeWidth="0.8" opacity="0.85" />
-                <path d="M 104,32 L 104,37 L 58,40 L 58,35 Z" fill="#242424" stroke="#181818" strokeWidth="0.8" />
-                <line x1="104" y1="32" x2="58" y2="35" stroke="#3d3d3d" strokeWidth="0.8" />
-                <path d="M 102,31 L 106,31 L 106,46 L 102,46 Z" fill="#262626" stroke="#181818" strokeWidth="0.8" />
-                <rect x="104" y="36" width="1.8" height="4" rx="0.4" fill="#888" />
-                <path d="M 102,45 L 106,45 L 122,83 L 118,83 Z" fill="#202020" stroke="#161616" strokeWidth="0.8" />
-                <rect x="101" y="44" width="6" height="2.5" rx="1" fill="#181818" />
-
-                {/* ======== COCKPIT & ELECTRONICS ======== */}
-                <polygon points="103,32 112,30 113,34 104,36" fill="#181818" />
-                <path d="M 112,30 C 117,30 120,33 118,39 L 115,39 C 116,35 114,33 111,33 Z" fill="#202020" />
-                <line x1="113" y1="31" x2="113" y2="34" stroke="#333" strokeWidth="0.6" />
-                <line x1="115" y1="32" x2="115" y2="35" stroke="#333" strokeWidth="0.6" />
-                <rect x="116" y="31" width="4.5" height="5" rx="1.5" fill="#2c2c2c" stroke="#1a1a1a" strokeWidth="0.5" />
-                <line x1="117" y1="35" x2="116" y2="41" stroke="#555" strokeWidth="1.2" strokeLinecap="round" />
-                <rect x="112" y="26" width="5.5" height="4.5" rx="1" fill="#111" stroke="#333" strokeWidth="0.4" />
-                <rect x="112.8" y="26.8" width="3.9" height="2.9" rx="0.5" fill="#38bdf8" opacity="0.9" />
-
-                {/* ======== SADDLE & REAR TAILLIGHT ======== */}
-                <polygon points="57,28 61,28 62,36 58,36" fill="#181818" />
-                <path d="M 48,25 C 51,23 58,22 64,23 C 68,23.5 70,25 69,27 C 67,29 60,30 55,29 C 50,29 47,27 48,25 Z" fill="#1c1c1c" stroke="#111" strokeWidth="0.6" />
-                <line x1="53" y1="26" x2="62" y2="26" stroke="#111" strokeWidth="0.8" />
-                <line x1="51" y1="27" x2="63" y2="27" stroke="#444" strokeWidth="0.8" />
-                <rect x="55.5" y="31" width="2.2" height="4.2" rx="0.8" fill="#ef4444" opacity="0.95" />
-
-                {/* ======== DRIVETRAIN ======== */}
-                <circle cx="72" cy="78" r="11" fill="#181818" stroke="#2e2e2e" strokeWidth="0.8" />
-                <circle cx="72" cy="78" r="9" fill="#222" stroke="#282828" strokeWidth="0.6" />
-                <circle cx="72" cy="78" r="11.5" fill="none" stroke="#444" strokeWidth="0.6" strokeDasharray="1.2 1" />
-                {[0, 72, 144, 216, 288].map((deg) => {
-                  const rad = (deg * Math.PI) / 180;
-                  return <circle key={`cbolt-${deg}`} cx={72 + 7.5 * Math.cos(rad)} cy={78 + 7.5 * Math.sin(rad)} r="0.8" fill="#555" />;
-                })}
-                <circle cx="28" cy="82" r="5.5" fill="#3a3a3a" stroke="#555" strokeWidth="0.8" />
-                <polygon points="26,85 30,85 32,90 28,91" fill="#202020" stroke="#151515" strokeWidth="0.5" />
-                <circle cx="30" cy="87" r="1.5" fill="#333" />
-                <circle cx="29" cy="91" r="1.5" fill="#333" />
-                <line x1="72" y1="67" x2="28" y2="76.5" stroke="#444" strokeWidth="1.2" />
-                <line x1="72" y1="89" x2="28" y2="87.5" stroke="#444" strokeWidth="1.2" />
-                <line x1="72" y1="67" x2="28" y2="76.5" stroke="#666" strokeWidth="0.4" strokeDasharray="2 1.5" />
-
-                {/* ======== DUAL WATER BOTTLES ======== */}
-                <rect x="80.5" y="54" width="3.5" height="15" rx="1.5" fill="#2a2a2a" stroke="#1c1c1c" strokeWidth="0.5" />
-                <rect x="81" y="53" width="2.5" height="2" rx="0.8" fill="#444" />
-                <line x1="81" y1="60" x2="83.5" y2="60" stroke="#888" strokeWidth="0.5" />
-                <rect x="63" y="47" width="3.5" height="13" rx="1.5" fill="#2a2a2a" stroke="#1c1c1c" strokeWidth="0.5" transform="rotate(-15, 63, 47)" />
-
-                {/* ======== PEDALS + MUSCULAR RIDER (Cycle A Dynamic Anatomy IK) ======== */}
-                {(() => {
-                  const pa = (vehiclePos.wheelRot * 1.5 * Math.PI) / 180;
-                  const cl = 13;
-                  const bx = 72, by = 78;
-                  const f1x = bx + cl * Math.cos(pa);
-                  const f1y = by + cl * Math.sin(pa);
-                  const f2x = bx - cl * Math.cos(pa);
-                  const f2y = by - cl * Math.sin(pa);
-
-                  const hx = 58, hy = 26;
-                  const k1x = (f1x + hx) / 2 - 3.5;
-                  const k1y = (f1y + hy) / 2 - 11.5;
-                  const k2x = (f2x + hx) / 2 - 3.5;
-                  const k2y = (f2y + hy) / 2 - 11.5;
-
-                  return (
-                    <g>
-                      {/* Back crank */}
-                      <line x1={bx} y1={by} x2={f2x} y2={f2y} stroke="#888" strokeWidth="2.8" strokeLinecap="round" />
-
-                      {/* Back leg */}
-                      <polygon points={`${hx - 2},${hy + 1} ${hx + 3},${hy} ${k2x + 3},${k2y + 2} ${k2x - 2},${k2y + 3}`} fill="#ba7c48" />
-                      <polygon points={`${hx - 2},${hy + 1} ${hx + 3},${hy} ${(hx * 0.45 + k2x * 0.55) + 2.5},${(hy * 0.45 + k2y * 0.55) + 1} ${(hx * 0.45 + k2x * 0.55) - 2},${(hy * 0.45 + k2y * 0.55) + 2}`} fill="#161616" />
-                      <path d={`M ${k2x - 1},${k2y + 1} C ${k2x - 3},${(k2y + f2y) / 2} ${f2x - 3},${f2y - 2} ${f2x - 1},${f2y} L ${f2x + 2},${f2y} C ${f2x + 3},${f2y - 3} ${k2x + 3},${(k2y + f2y) / 2} ${k2x + 2},${k2y + 1} Z`} fill="#a86e3f" />
-                      <rect x={f2x - 2} y={f2y - 4} width="4" height="3" rx="0.5" fill="#e5e5e5" />
-                      <polygon points={`${f2x - 3},${f2y + 2} ${f2x + 6},${f2y + 2} ${f2x + 7},${f2y - 1} ${f2x + 4},${f2y - 3} ${f2x - 3},${f2y - 2}`} fill="#141414" />
-                      <rect x={f2x - 4} y={f2y + 2} width="8" height="2.2" rx="0.7" fill="#f59e0b" />
-
-                      {/* Back arm */}
-                      <line x1="82" y1="10" x2="96" y2="19" stroke="#1c1c1c" strokeWidth="3.2" strokeLinecap="round" />
-                      <line x1="96" y1="19" x2="114" y2="32" stroke="#1c1c1c" strokeWidth="2.8" strokeLinecap="round" />
-                      <circle cx="114" cy="32" r="2.2" fill="#141414" />
-
-                      {/* Torso */}
-                      <path d="M 56,27 C 56,22 62,20 78,12 L 84,10 L 86,13 C 83,18 78,21 68,26 C 62,29 57,28 56,27 Z" fill="#202020" stroke="#161616" strokeWidth="0.8" />
-                      <path d="M 64,22 C 72,17 78,14 83,11" stroke="#ffffff" strokeWidth="1.2" opacity="0.9" />
-                      <rect x="56" y="24" width="4.5" height="3" rx="0.5" fill="#ffffff" opacity="0.85" />
-                      <line x1="83" y1="11" x2="67" y2="24" stroke="#333" strokeWidth="0.6" />
-                      <path d="M 83,9 C 85,8 87,9 88,10" fill="none" stroke="#444" strokeWidth="1" />
-
-                      {/* Front leg */}
-                      <polygon points={`${hx - 2},${hy} ${hx + 4},${hy - 1} ${k1x + 4},${k1y + 1} ${k1x - 2},${k1y + 2}`} fill="#e5a672" stroke="#ca8a04" strokeWidth="0.4" />
-                      <polygon points={`${hx - 2},${hy} ${hx + 4},${hy - 1} ${(hx * 0.45 + k1x * 0.55) + 3},${(hy * 0.45 + k1y * 0.55)} ${(hx * 0.45 + k1x * 0.55) - 2},${(hy * 0.45 + k1y * 0.55) + 1}`} fill="#181818" />
-                      <line x1={(hx * 0.45 + k1x * 0.55) - 1.5} y1={(hy * 0.45 + k1y * 0.55) + 1} x2={(hx * 0.45 + k1x * 0.55) + 3} y2={(hy * 0.45 + k1y * 0.55)} stroke="#ffffff" strokeWidth="0.9" />
-                      <path d={`M ${k1x - 1},${k1y + 1} C ${k1x - 4},${(k1y + f1y) / 2} ${f1x - 3},${f1y - 2} ${f1x - 1},${f1y} L ${f1x + 3},${f1y} C ${f1x + 4},${f1y - 3} ${k1x + 4},${(k1y + f1y) / 2} ${k1x + 2},${k1y + 1} Z`} fill="#e5a672" stroke="#ca8a04" strokeWidth="0.4" />
-                      <circle cx={k1x + 1} cy={k1y + 1} r="2.2" fill="#df9b64" />
-                      <rect x={f1x - 2} y={f1y - 5} width="4.8" height="3.8" rx="0.6" fill="#ffffff" stroke="#e5e7eb" strokeWidth="0.4" />
-                      <polygon points={`${f1x - 3},${f1y + 2} ${f1x + 7},${f1y + 2} ${f1x + 8},${f1y - 1} ${f1x + 5},${f1y - 3} ${f1x - 3},${f1y - 2}`} fill="#181818" stroke="#111" strokeWidth="0.5" />
-                      <line x1={f1x - 3} y1={f1y + 2} x2={f1x + 7} y2={f1y + 2} stroke="#333" strokeWidth="1.2" />
-                      <circle cx={f1x + 2} cy={f1y - 1.5} r="0.9" fill="#eab308" />
-                      <rect x={f1x - 4} y={f1y + 2} width="8" height="2.5" rx="0.8" fill="#f59e0b" />
-
-                      {/* Front crank */}
-                      <line x1={bx} y1={by} x2={f1x} y2={f1y} stroke="#ddd" strokeWidth="3" strokeLinecap="round" />
-
-                      {/* Front arm */}
-                      <line x1="84" y1="11" x2="98" y2="20" stroke="#282828" strokeWidth="3.8" strokeLinecap="round" />
-                      <line x1="98" y1="20" x2="116" y2="33" stroke="#262626" strokeWidth="3.2" strokeLinecap="round" />
-                      <circle cx="98" cy="20" r="1.8" fill="#333" />
-                      <circle cx="116" cy="33" r="2.5" fill="#181818" stroke="#333" strokeWidth="0.5" />
-                      <line x1="114" y1="31" x2="118" y2="33" stroke="#ffffff" strokeWidth="0.6" opacity="0.85" />
-
-                      {/* Head & Helmet */}
-                      <line x1="85" y1="8" x2="82" y2="12" stroke="#222" strokeWidth="3" strokeLinecap="round" />
-                      <path d="M 87,4 C 86,-2 92,-5 98,-5 C 104,-5 108,-1 106,4 C 104,8 98,9 93,8 C 88,8 86,6 87,4 Z" fill="#242424" stroke="#181818" strokeWidth="0.8" />
-                      <polygon points="90,5 80,2 87,-1" fill="#1e1e1e" />
-                      <line x1="93" y1="-3" x2="97" y2="-3.5" stroke="#3a3a3a" strokeWidth="0.8" strokeLinecap="round" />
-                      <line x1="99" y1="-3.5" x2="103" y2="-2" stroke="#3a3a3a" strokeWidth="0.8" strokeLinecap="round" />
-                      <path d="M 94,-1 L 98,-3 L 102,-1" fill="none" stroke="#ffffff" strokeWidth="0.8" opacity="0.85" />
-                      <path d="M 94,3 C 97,1 102,1 105,3 C 106,5 104,6 100,6 C 96,6 94,5 94,3 Z" fill="#111" stroke="#333" strokeWidth="0.5" />
-                      <line x1="96" y1="2.5" x2="102" y2="2.5" stroke="#777" strokeWidth="0.6" strokeLinecap="round" />
-                      <polygon points="94,7 98,7 96,9" fill="#242424" />
-                    </g>
-                  );
-                })()}
-              </g>
+              <CycleA wheelRot={0} />
             </g>
           )}
         </svg>
@@ -783,31 +901,27 @@ export default function HomePage() {
         {/* ---- CYCLE B (Three.js 3D Road Bike & Cyclist) ---- */}
         {vehicle === 'bikeB' && (
           <div
+            ref={bikeBRef}
             className="absolute pointer-events-none select-none overflow-visible"
             style={{
               left: 0,
               top: 0,
-              transform: `translate(${vehiclePos.x}px, ${vehiclePos.y}px) rotate(${vehiclePos.angle}deg)`,
+              transform: 'translate(50px, 480px) rotate(0deg)',
               transformOrigin: '0 0',
               willChange: 'transform',
             }}
           >
-            <div
-              style={{
-                transform: 'translate(-65px, -91px)',
-              }}
-            >
-              <ThreeBike wheelRot={vehiclePos.wheelRot} width={130} height={100} />
+            <div style={{ transform: 'translate(-65px, -91px)' }}>
+              <ThreeBike wheelRot={0} width={130} height={100} />
             </div>
           </div>
         )}
       </div>
 
-      {/* ======== UI ======== */}
+      {/* ======== MINIMAL UI OVERLAY ======== */}
 
       {/* Progress bar & sound toggle — top right */}
       <div className="fixed top-5 right-5 z-40 flex items-center gap-2">
-        {/* Discreet audio toggle button: 🔊 / 🔇 */}
         <button
           onClick={handleToggleMute}
           className="flex items-center justify-center w-8 h-8 rounded-full bg-white border border-neutral-200 text-neutral-600 hover:text-neutral-900 shadow-sm cursor-pointer transition-all active:scale-95"
@@ -816,21 +930,25 @@ export default function HomePage() {
           <span className="text-xs">{!isAudioMuted && isAudioActive ? '🔊' : '🔇'}</span>
         </button>
 
-        {/* Progress pill */}
         <div className="flex items-center gap-2 bg-white border border-neutral-200 px-3 py-1.5 rounded-full text-neutral-500 text-[11px] font-medium shadow-sm">
           <div className="w-16 h-1 bg-neutral-100 rounded-full overflow-hidden">
             <div
-              className="h-full bg-neutral-900 rounded-full transition-all duration-75"
-              style={{ width: `${pct}%` }}
+              ref={progressBarRef}
+              className="h-full bg-neutral-900 rounded-full"
+              style={{ width: '0%' }}
             />
           </div>
-          <span className="text-neutral-900 font-semibold text-[10px] tabular-nums">{pct}%</span>
+          <span
+            ref={progressTextRef}
+            className="text-neutral-900 font-semibold text-[10px] tabular-nums"
+          >
+            0%
+          </span>
         </div>
       </div>
 
       {/* Toggle + instruction — bottom center */}
       <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3">
-        {/* Vehicle toggle: Car, Moto, Cycle A, Cycle B */}
         <div className="flex items-center bg-white border border-neutral-200 rounded-full shadow-sm p-0.5 whitespace-nowrap">
           <button
             onClick={() => {
@@ -886,13 +1004,11 @@ export default function HomePage() {
           </button>
         </div>
 
-        {/* Clean minimal instruction pill */}
         <div className="flex items-center gap-2.5 bg-white border border-neutral-200 px-4 py-2 rounded-full text-neutral-400 text-[11px] font-medium shadow-sm whitespace-nowrap">
           <span>scroll · drag · arrow keys</span>
         </div>
       </div>
 
-      {/* Google Font import */}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
       `}</style>

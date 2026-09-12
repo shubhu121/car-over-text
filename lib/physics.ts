@@ -127,7 +127,7 @@ export function sampleTrack(path: SVGPathElement, dist: number, totalLen: number
   const d = Math.max(0, Math.min(totalLen, dist));
   const pt = path.getPointAtLength(d);
 
-  const delta = 2.0;
+  const delta = 3.5;
   const d1 = Math.max(0, d - delta);
   const d2 = Math.min(totalLen, d + delta);
   const p1 = path.getPointAtLength(d1);
@@ -141,25 +141,11 @@ export function sampleTrack(path: SVGPathElement, dist: number, totalLen: number
 
   const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
 
-  // Curvature calculation using second derivative
-  const pMid1 = path.getPointAtLength(Math.max(0, d - 4.0));
-  const pMid2 = path.getPointAtLength(Math.min(totalLen, d + 4.0));
-  const dx1 = pt.x - pMid1.x;
-  const dy1 = pt.y - pMid1.y;
-  const dx2 = pMid2.x - pt.x;
-  const dy2 = pMid2.y - pt.y;
-  const a1 = Math.atan2(dy1, dx1);
-  const a2 = Math.atan2(dy2, dx2);
-  let da = a2 - a1;
-  while (da < -Math.PI) da += Math.PI * 2;
-  while (da > Math.PI) da -= Math.PI * 2;
-  const curvature = da / 8.0;
-
   return {
     pt,
     tangent: { x: tx, y: ty },
     angleDeg: isNaN(angleDeg) ? 0 : angleDeg,
-    curvature: isNaN(curvature) ? 0 : curvature,
+    curvature: 0,
   };
 }
 
@@ -259,10 +245,9 @@ export function stepPhysics(
     v += netPropulsion * clampedDt;
   }
 
-  // Static friction deadband when nearly stopped on nearly flat ground
-  if (!throttleActive && !isBraking && Math.abs(v) < 10 && Math.abs(track.tangent.y) < 0.08) {
-    v *= 0.82;
-    if (Math.abs(v) < 0.8) v = 0;
+  // Clean static rest threshold when naturally rolled to a halt
+  if (!throttleActive && !isBraking && Math.abs(v) < 0.5 && Math.abs(track.tangent.y) < 0.04) {
+    v = 0;
   }
 
   const totalAccel = (v - state.velocity) / clampedDt;
@@ -291,11 +276,8 @@ export function stepPhysics(
   const normalAcc = GRAVITY * Math.abs(track.tangent.x) + aCentripetal;
   const gForce = Math.max(0, normalAcc / GRAVITY);
 
-  // Dynamic suspension pitch:
-  // Reacts to both linear acceleration (lean back on accel, dive on brake)
-  // and centripetal load
-  const targetPitch = Math.max(-7, Math.min(7, totalAccel * config.suspensionSensitivity));
-  const suspensionPitch = state.suspensionPitch + (targetPitch - state.suspensionPitch) * (1 - Math.exp(-12 * clampedDt));
+  // Vehicle stays solidly seated tangent to the track without pitching jitter
+  const suspensionPitch = 0;
 
   const isSkidding = isBraking && Math.abs(v) > 250;
   const isAirborne = gForce < 0.25 && Math.abs(v) > 200;

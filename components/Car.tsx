@@ -19,7 +19,7 @@ export interface CarProps {
  * - Heavy-duty chrome bumpers, grille, mirrors, door handles, and antenna
  * - Responsive tail lamp with brake illumination
  */
-export const Car: React.FC<CarProps> = ({
+export const Car: React.FC<CarProps> = React.memo(({
   wheelRotation = 0,
   width = 220,
   height = 100,
@@ -523,4 +523,4 @@ export const Car: React.FC<CarProps> = ({
       </g>
     </svg>
   );
-};
+});
