@@ -361,6 +361,35 @@ export class VehicleAudioEngine {
 
       osc.start(now);
       osc.stop(now + 0.3);
+    } else if (vehicle === 'monster') {
+      // Monster truck air horn: deep dual-tone 110Hz + 165Hz blast
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const hornGain = ctx.createGain();
+
+      osc1.type = 'sawtooth';
+      osc2.type = 'sawtooth';
+      osc1.frequency.setValueAtTime(110, now);
+      osc2.frequency.setValueAtTime(165, now);
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(900, now);
+
+      hornGain.gain.setValueAtTime(0, now);
+      hornGain.gain.linearRampToValueAtTime(0.45, now + 0.04);
+      hornGain.gain.setValueAtTime(0.45, now + 0.4);
+      hornGain.gain.linearRampToValueAtTime(0, now + 0.55);
+
+      osc1.connect(filter);
+      osc2.connect(filter);
+      filter.connect(hornGain);
+      hornGain.connect(this.masterGain);
+
+      osc1.start(now);
+      osc2.start(now);
+      osc1.stop(now + 0.6);
+      osc2.stop(now + 0.6);
     } else {
       // Bicycle bell: dual harmonic bright brass "ding-ding!"
       const playChime = (timeOffset: number) => {
@@ -410,19 +439,21 @@ export class VehicleAudioEngine {
     const isMoto = vehicle === 'moto';
     const isBikeA = vehicle === 'bikeA';
     const isBikeB = vehicle === 'bikeB';
+    const isMonster = vehicle === 'monster';
 
     // =====================================
     // 1. UPDATE CAR SOUND
     // =====================================
     if (this.carGain && this.carOsc1 && this.carOsc2 && this.carSubOsc && this.carFilter) {
-      if (isCar) {
+      if (isCar || isMonster) {
         // Fundamental frequency scales with speed and uphill slope load
-        const speedRatio = Math.min(1.2, absSpeed / 1600);
+        // Monster truck runs a deeper, louder big-block V8
+        const speedRatio = Math.min(1.2, absSpeed / (isMonster ? 1550 : 1600));
         // Engine load increases when climbing uphill (-slope) with throttle
         const slopeLoad = Math.max(0, -physics.slopeDeg / 60) * (physics.throttleApplied ? 0.35 : 0.1);
         const engineRPMFactor = speedRatio + slopeLoad;
 
-        const baseFreq = 34 + engineRPMFactor * 135;
+        const baseFreq = (isMonster ? 26 : 34) + engineRPMFactor * (isMonster ? 110 : 135);
         this.carOsc1.frequency.setTargetAtTime(baseFreq, now, ramp);
         this.carOsc2.frequency.setTargetAtTime(baseFreq * 2.03, now, ramp);
         this.carSubOsc.frequency.setTargetAtTime(baseFreq * 0.5, now, ramp);
@@ -432,7 +463,8 @@ export class VehicleAudioEngine {
         this.carFilter.frequency.setTargetAtTime(Math.min(2600, filterCutoff), now, ramp);
 
         // Gain: gentle purr when idle, rises with speed and throttle
-        const targetCarGain = 0.18 + engineRPMFactor * 0.32 + (physics.throttleApplied ? 0.15 : 0);
+        const targetCarGain =
+          (isMonster ? 0.24 : 0.18) + engineRPMFactor * (isMonster ? 0.38 : 0.32) + (physics.throttleApplied ? 0.15 : 0);
         this.carGain.gain.setTargetAtTime(targetCarGain, now, ramp);
       } else {
         this.carGain.gain.setTargetAtTime(0, now, ramp);
