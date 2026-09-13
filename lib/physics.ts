@@ -1,15 +1,20 @@
 /**
  * Vehicle Physics Engine for Loop-The-Loop Track
- * 
- * Features:
+ *
+ * Longitudinal model (the whole game feel lives here):
  * - Gravitational tangential force along 2D curve slope (a_g = g * sin(theta))
  * - Vehicle-specific mass, acceleration, aerodynamic drag, and rolling friction
- * - Centripetal acceleration and normal G-force telemetry (loop compression & camelback airtime)
- * - Suspension pitch reaction from linear acceleration & centrifugal load
+ * - Centripetal G-force telemetry (loop compression & camelback airtime)
  * - Realistic momentum coasting, stall/rollback on steep hills, and throttle drive
+ *
+ * Visual suspension (deliberately light — a small damped bob only):
+ * - 1-DOF spring-damper on body height driven by slope/curvature changes
+ * - Travel is tiny and measured against wheel-well clearance so the body
+ *   can never swallow the wheels; wheels stay planted, spin stays locked
+ * - Body pitch is a smoothed brake-dive / power-squat lean, nothing more
  */
 
-export type VehicleType = 'car' | 'moto' | 'bikeA' | 'bikeB';
+export type VehicleType = 'car' | 'moto' | 'bikeA' | 'bikeB' | 'monster';
 
 export interface VehiclePhysicsConfig {
   name: string;
@@ -20,7 +25,10 @@ export interface VehiclePhysicsConfig {
   rollResistance: number;   // Linear friction coefficient
   dragCoeff: number;        // Aerodynamic quadratic drag coefficient
   wheelCircumference: number;// For wheel rotation calculation (px)
-  suspensionSensitivity: number;
+  suspensionSensitivity: number; // Body pitch responsiveness (brake dive / power squat)
+  suspStiffness: number;      // Visual bob spring rate (1/s^2)
+  suspDamping: number;        // Visual bob damper rate (1/s)
+  suspTravel: number;         // Max visual bob each way — keep within wheel-well clearance (px)
 }
 
 export const VEHICLE_CONFIGS: Record<VehicleType, VehiclePhysicsConfig> = {
@@ -34,6 +42,9 @@ export const VEHICLE_CONFIGS: Record<VehicleType, VehiclePhysicsConfig> = {
     dragCoeff: 0.00035,
     wheelCircumference: 38 * Math.PI,
     suspensionSensitivity: 0.0035,
+    suspStiffness: 90,
+    suspDamping: 6.1,
+    suspTravel: 3,
   },
   moto: {
     name: 'Sport Motorbike',
@@ -45,6 +56,9 @@ export const VEHICLE_CONFIGS: Record<VehicleType, VehiclePhysicsConfig> = {
     dragCoeff: 0.00028,
     wheelCircumference: 38 * Math.PI,
     suspensionSensitivity: 0.0045,
+    suspStiffness: 130,
+    suspDamping: 6.8,
+    suspTravel: 2.5,
   },
   bikeA: {
     name: 'Cycle A (Road Bike)',
@@ -56,6 +70,9 @@ export const VEHICLE_CONFIGS: Record<VehicleType, VehiclePhysicsConfig> = {
     dragCoeff: 0.00045,
     wheelCircumference: 44 * Math.PI,
     suspensionSensitivity: 0.0025,
+    suspStiffness: 260,
+    suspDamping: 12.9,
+    suspTravel: 3,
   },
   bikeB: {
     name: 'Cycle B (3D Aero Bike)',
@@ -67,6 +84,23 @@ export const VEHICLE_CONFIGS: Record<VehicleType, VehiclePhysicsConfig> = {
     dragCoeff: 0.00038,
     wheelCircumference: 44 * Math.PI,
     suspensionSensitivity: 0.0025,
+    suspStiffness: 260,
+    suspDamping: 12.9,
+    suspTravel: 3,
+  },
+  monster: {
+    name: 'Monster Truck',
+    mass: 2500,
+    enginePower: 2200,
+    maxSpeed: 1650,
+    brakeDecel: 2600,
+    rollResistance: 0.22,
+    dragCoeff: 0.00042,
+    wheelCircumference: 48 * Math.PI,
+    suspensionSensitivity: 0.005,
+    suspStiffness: 45,
+    suspDamping: 3.0,
+    suspTravel: 3,
   },
 };
 
@@ -75,13 +109,18 @@ export interface PhysicsState {
   velocity: number;         // Linear velocity in px/s (positive = forward)
   acceleration: number;     // Instantaneous acceleration in px/s^2
   wheelRot: number;         // Accumulated wheel rotation in degrees
-  suspensionPitch: number;  // Dynamic tilt angle in degrees
+  suspensionPitch: number;  // Body lean in degrees (+ = nose down / dive)
   gForce: number;           // Perceived normal G-force (1.0 = flat 1G)
   slopeDeg: number;         // Slope inclination in degrees
   isBraking: boolean;       // True if actively braking
   isSkidding: boolean;      // True during high slip / hard braking
   isAirborne: boolean;      // True during camelback airtime (<0.3G)
   throttleApplied: boolean; // True when throttle is pressed
+  bodyH: number;            // Visual bob height along off-track normal (px, + = up)
+  bodyV: number;            // Visual bob velocity (px/s)
+  kappaS: number;           // Smoothed curvature so the bob never jitters or snaps
+  hopH: number;             // Micro-hop height above track (px, whole sprite, capped lil)
+  hopV: number;             // Micro-hop velocity (px/s)
 }
 
 export interface PhysicsInputs {
@@ -110,6 +149,11 @@ export function createInitialPhysicsState(initialDist: number = 0): PhysicsState
     isSkidding: false,
     isAirborne: false,
     throttleApplied: false,
+    bodyH: 0,
+    bodyV: 0,
+    kappaS: 0,
+    hopH: 0,
+    hopV: 0,
   };
 }
 
@@ -117,7 +161,14 @@ export interface TrackSample {
   pt: { x: number; y: number };
   tangent: { x: number; y: number };
   angleDeg: number;
-  curvature: number; // 1 / R (rad/px)
+  curvature: number; // Signed d(theta)/ds (rad/px), + = curving toward left of travel
+}
+
+/** Wraps an angle difference to [-PI, PI] */
+function wrapPi(a: number): number {
+  while (a > Math.PI) a -= 2 * Math.PI;
+  while (a < -Math.PI) a += 2 * Math.PI;
+  return a;
 }
 
 /**
@@ -141,11 +192,19 @@ export function sampleTrack(path: SVGPathElement, dist: number, totalLen: number
 
   const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
 
+  // Signed curvature via finite difference of segment directions (rad/px).
+  // + = track curving toward the left of travel (crest when moving +x).
+  const a1 = Math.atan2(pt.y - p1.y, pt.x - p1.x);
+  const a2 = Math.atan2(p2.y - pt.y, p2.x - pt.x);
+  const arcLen =
+    Math.hypot(pt.x - p1.x, pt.y - p1.y) + Math.hypot(p2.x - pt.x, p2.y - pt.y) || 1;
+  const curvature = wrapPi(a2 - a1) / arcLen;
+
   return {
     pt,
     tangent: { x: tx, y: ty },
     angleDeg: isNaN(angleDeg) ? 0 : angleDeg,
-    curvature: 0,
+    curvature: isNaN(curvature) ? 0 : curvature,
   };
 }
 
@@ -182,6 +241,11 @@ export function stepPhysics(
       isSkidding: false,
       isAirborne: false,
       throttleApplied: false,
+      bodyH: 0,
+      bodyV: 0,
+      kappaS: track.curvature,
+      hopH: 0,
+      hopV: 0,
     };
   }
 
@@ -267,20 +331,69 @@ export function stepPhysics(
   const actualDeltaDist = newDistance - state.distance;
   const wheelRotDelta = (actualDeltaDist / config.wheelCircumference) * 360;
 
-  // Centripetal acceleration and G-force:
-  // a_c = v^2 * curvature (curvature is d(theta)/ds)
-  // Normal force = m * (g * cos(theta) + v^2 * curvature)
-  // G-Force = Normal / (m * g)
-  const aCentripetal = Math.pow(v, 2) * track.curvature;
-  // Project downward gravity onto normal: n = (-ty, tx) -> g * tx
-  const normalAcc = GRAVITY * Math.abs(track.tangent.x) + aCentripetal;
-  const gForce = Math.max(0, normalAcc / GRAVITY);
+  const tx = track.tangent.x;
 
-  // Vehicle stays solidly seated tangent to the track without pitching jitter
-  const suspensionPitch = 0;
+  // Smoothed curvature: the visual bob never sees single-sample spikes
+  const kappaS =
+    state.kappaS + (track.curvature - state.kappaS) * Math.min(1, 15 * clampedDt);
+
+  // Centripetal normal force (loop squeeze & crest lightness).
+  // <= 0 on a crest means the track is falling away faster than gravity pulls.
+  const normalForce = GRAVITY * tx - v * v * kappaS;
+  const gForce = Math.max(0, normalForce / GRAVITY);
+
+  // Light visual bob: spring-damper driven by slope/curvature changes.
+  // Flat rest = equilibrium (h = 0); crests float (+), valleys press (-).
+  // Travel is tiny on purpose — the wheels stay planted, the body just breathes.
+  const disturb = GRAVITY * (1 - tx) + v * v * kappaS;
+  let h = state.bodyH;
+  let hv = state.bodyV;
+  hv += (-config.suspStiffness * h - config.suspDamping * hv + disturb) * clampedDt;
+  h += hv * clampedDt;
+  if (h > config.suspTravel) {
+    h = config.suspTravel;
+    if (hv > 0) hv = 0;
+  } else if (h < -config.suspTravel) {
+    h = -config.suspTravel;
+    if (hv < 0) hv *= -0.2;
+  }
+
+  // Micro-hop: briefly leave the ground off sharp crests — lil by design.
+  // The WHOLE sprite lifts (wheels stay attached to the body, nothing detaches),
+  // gravity pulls it straight back, touchdown thuds the suspension. Capped ~14px.
+  // Only launches right-side-up-ish (tx > 0.3) with real speed: slow loop-apex
+  // hangs and inverted sections stay glued like before.
+  let hopH = state.hopH;
+  let hopV = state.hopV;
+  if (hopH > 0 || (normalForce <= 0 && tx > 0.3 && Math.abs(v) > 150)) {
+    if (hopH <= 0) {
+      // Kick scales with crest severity: gentle lip, capped hop
+      hopV = 60 + Math.min(140, -normalForce * 0.05);
+      hopH = 0.01;
+    }
+    hopV += -GRAVITY * tx * clampedDt;
+    hopH += hopV * clampedDt;
+    if (hopH > 18) {
+      hopH = 18;
+      if (hopV > 0) hopV = 0;
+    }
+    if (hopH <= 0) {
+      hopH = 0;
+      hv += Math.max(-200, hopV * 0.35); // falling speed -> suspension thud
+      hopV = 0;
+    }
+  } else {
+    hopH = 0;
+    hopV = 0;
+  }
+
+  // Gentle body lean: dive under braking/decel, squat under power (smoothed)
+  const pitchTarget = Math.max(-7, Math.min(7, -totalAccel * config.suspensionSensitivity));
+  const suspensionPitch =
+    state.suspensionPitch + (pitchTarget - state.suspensionPitch) * Math.min(1, 10 * clampedDt);
 
   const isSkidding = isBraking && Math.abs(v) > 250;
-  const isAirborne = gForce < 0.25 && Math.abs(v) > 200;
+  const isAirborne = (gForce < 0.25 && Math.abs(v) > 200) || hopH > 0.5;
 
   return {
     distance: newDistance,
@@ -294,5 +407,10 @@ export function stepPhysics(
     isSkidding,
     isAirborne,
     throttleApplied: throttleActive,
+    bodyH: h,
+    bodyV: hv,
+    kappaS,
+    hopH,
+    hopV,
   };
 }

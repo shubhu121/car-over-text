@@ -146,7 +146,7 @@ export const Car: React.FC<CarProps> = React.memo(({
       {/* ======================================================== */}
       {/* 2. MAIN CAR CHASSIS GROUP (No car drop shadow)           */}
       {/* ======================================================== */}
-      <g>
+      <g className="susp-body">
         {/* Antenna */}
         <line x1="62" y1="33" x2="48" y2="12" stroke="#475569" strokeWidth="1" strokeLinecap="round" />
         <circle cx="47.5" cy="11.5" r="1.5" fill="#DC2626" />
@@ -378,11 +378,12 @@ export const Car: React.FC<CarProps> = React.memo(({
           <rect x="15" y="76" width="4.5" height="11" rx="1.5" fill="#1E293B" stroke="#334155" strokeWidth="0.5" />
         </g>
 
-        {/* Wheel Arch Moldings (Fender Lip) */}
+        {/* Wheel Arch Moldings (Fender Lip, sprung with the body) */}
         <path d="M 54 84 A 20 20 0 0 1 90 84" stroke="#78350F" strokeWidth="2.2" fill="none" opacity="0.9" />
         <path d="M 158 84 A 20 20 0 0 1 194 84" stroke="#78350F" strokeWidth="2.2" fill="none" opacity="0.9" />
-
-        {/* STATIC BRAKE CALIPERS (Mounted to suspension, NOT rotating with wheel) */}
+      </g>
+      <g>
+        {/* STATIC BRAKE CALIPERS (unsprung knuckle hardware, planted with wheels) */}
         <rect x="74" y="76" width="4" height="6.5" rx="1.2" fill="#DC2626" stroke="#991B1B" strokeWidth="0.6" />
         <rect x="178" y="76" width="4" height="6.5" rx="1.2" fill="#DC2626" stroke="#991B1B" strokeWidth="0.6" />
       </g>

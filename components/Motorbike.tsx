@@ -38,6 +38,7 @@ export const Motorbike: React.FC<MotorbikeProps> = React.memo(({ wheelRotation =
         ))}
         <circle cx="184" cy="84" r="3.6" fill="url(#mbChrome)" stroke="#0F172A" strokeWidth="0.8" />
       </g>
+      <g className="susp-body">
       <rect x="192" y="74" width="6" height="5" rx="1.2" fill="#B91C1C" />
       <polygon points="60,84 108,74 108,80 60,88" fill="#1F2937" stroke="#0B1220" strokeWidth="0.8" />
       <line x1="60" y1="86.5" x2="112" y2="77" stroke="#52525B" strokeWidth="1.4" strokeDasharray="3 1.5" />
@@ -73,6 +74,7 @@ export const Motorbike: React.FC<MotorbikeProps> = React.memo(({ wheelRotation =
       <path d="M 154,26 L 164,28 L 162,33 L 153,31 Z" fill="#0F172A" stroke="#E0F2FE" strokeWidth="0.7" />
       <circle cx="138" cy="60" r="5.5" fill="#fff" stroke="#450A0A" strokeWidth="0.6" />
       <text x="138" y="62.2" textAnchor="middle" fontSize="6.5" fontWeight="900" fill="#B91C1C" fontFamily="Arial,sans-serif">46</text>
+      </g>
     </svg>
   );
 });

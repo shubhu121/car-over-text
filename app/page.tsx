@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Car } from '@/components/Car';
 import { ThreeBike } from '@/components/ThreeBike';
 import { Motorbike } from '@/components/Motorbike';
+import { MonsterTruck } from '@/components/MonsterTruck';
 import {
   stepPhysics,
   sampleTrack,
@@ -32,6 +33,13 @@ interface Particle {
   alpha: number;
   color: string;
 }
+
+// Suspension render mapping per motorized vehicle: inner-artwork scale + body pitch pivot (SVG units)
+const SUSP_RENDER: Record<string, { s: number; px: number; py: number }> = {
+  car: { s: 0.52, px: 120, py: 60 },
+  moto: { s: 0.52, px: 120, py: 60 },
+  monster: { s: 0.85, px: 130, py: 70 },
+};
 
 // Pre-computed spoke offsets for 24-spoke bicycle wheels (radius 16)
 const BIKE_SPOKE_OFFSETS_24: { dx: number; dy: number }[] = Array.from({ length: 24 }, (_, i) => {
@@ -352,6 +360,16 @@ export default function HomePage() {
   const progressTextRef = useRef<HTMLSpanElement | null>(null);
   const progressBarRef = useRef<HTMLDivElement | null>(null);
 
+  // Cached vehicle sub-nodes (queried once per vehicle mount, never per frame)
+  const rearWheelElRef = useRef<Element | null>(null);
+  const frontWheelElRef = useRef<Element | null>(null);
+  const suspBodyElRef = useRef<Element | null>(null);
+  // Last-written transform values (skip redundant DOM writes when idle)
+  const lastDomRef = useRef({
+    x: NaN, y: NaN, a: NaN, spin: NaN, dy: NaN, pitch: NaN,
+    camX: NaN, camY: NaN, bx: NaN, by: NaN, ba: NaN,
+  });
+
   // Braking state (only toggles on change, zero per-frame renders)
   const [isBraking, setIsBraking] = useState<boolean>(false);
   const prevIsBrakingRef = useRef<boolean>(false);
@@ -372,9 +390,13 @@ export default function HomePage() {
   const [letters, setLetters] = useState<LetterItem[]>([]);
   const [pathLength, setPathLength] = useState<number>(4000);
 
-  // Tire smoke & dust particles (pre-allocated pool)
-  const particlesRef = useRef<Particle[]>([]);
-  const particleIdRef = useRef<number>(0);
+  // Tire smoke & dust particles (fixed pre-allocated pool, mutated in place)
+  const particlesRef = useRef<Particle[]>(
+    Array.from({ length: 24 }, () => ({
+      id: 0, x: 0, y: 0, vx: 0, vy: 0, size: 0, alpha: 0, color: '',
+    }))
+  );
+  const particleCountRef = useRef<number>(0);
 
   // Drag interaction tracking with low-pass velocity filtering
   const isDraggingRef = useRef<boolean>(false);
@@ -394,7 +416,8 @@ export default function HomePage() {
 
   // ================================================
   // PATH: Gentle approach → Teardrop loop (crossing) → Hills & Waves
-  // ================================================
+  //   → Dip → Big Crest → Wave sets → Valley → Final straight
+  // (every joint keeps a +x tangent so the ride stays smooth)
   const trackPathD = useMemo(() => {
     return [
       'M 50,480',
@@ -414,6 +437,17 @@ export default function HomePage() {
       'C 3140,480 3220,440 3320,440',
       'C 3420,440 3500,480 3600,480',
       'L 4800,480',
+      'C 4900,480 4960,560 5060,560',
+      'C 5160,560 5220,480 5320,480',
+      'C 5420,480 5480,360 5600,360',
+      'C 5720,360 5780,480 5880,480',
+      'C 5980,480 6030,415 6130,415',
+      'C 6230,415 6280,480 6380,480',
+      'C 6480,480 6530,425 6630,425',
+      'C 6730,425 6780,480 6880,480',
+      'C 6980,480 7060,555 7180,555',
+      'C 7300,555 7380,480 7500,480',
+      'L 7900,480',
     ].join(' ');
   }, []);
 
@@ -513,10 +547,21 @@ export default function HomePage() {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const vParam = params.get('vehicle');
-    if (vParam && ['car', 'moto', 'bikeA', 'bikeB'].includes(vParam)) {
+    if (vParam && ['car', 'moto', 'bikeA', 'bikeB', 'monster'].includes(vParam)) {
       setVehicle(vParam as VehicleType);
     }
   }, []);
+
+  // Re-cache vehicle sub-nodes whenever the mounted vehicle changes
+  useEffect(() => {
+    const g = vehicleGRef.current;
+    rearWheelElRef.current = g ? g.querySelector('.rear-wheel') : null;
+    frontWheelElRef.current = g ? g.querySelector('.front-wheel') : null;
+    suspBodyElRef.current = g ? g.querySelector('.susp-body') : null;
+    // Force fresh writes for the new artwork
+    const l = lastDomRef.current;
+    l.x = l.y = l.a = l.spin = l.dy = l.pitch = NaN;
+  }, [vehicle]);
 
   // ================================================
   // KEYBOARD & SCROLL CONTROLS
@@ -661,6 +706,7 @@ export default function HomePage() {
           dt
         );
         physicsStateRef.current = nextPhysics;
+        const L = lastDomRef.current;
 
         // 5. Canonical angle unwrapping (100% flush with track tangent, zero wobble)
         const rawAngle = trackSample.angleDeg;
@@ -668,32 +714,89 @@ export default function HomePage() {
         const unwrapped = prevAngleRef.current + diff;
         prevAngleRef.current = unwrapped;
 
-        // 5. Synchronous GPU vehicle transform (100% in-sync with compositor & camera)
+        // Render point: micro-hop lifts the whole sprite (wheels stay attached);
+        // rigid bikes also carry the tiny heave; motorized bodies bob via .susp-body
+        const vType = vehicleRef.current;
+        const isRigidBike = vType === 'bikeA' || vType === 'bikeB';
+        const ux = trackSample.tangent.y;
+        const uy = -trackSample.tangent.x;
+        const lift = nextPhysics.hopH + (isRigidBike ? nextPhysics.bodyH : 0);
+        const renderX = trackSample.pt.x + ux * lift;
+        const renderY = trackSample.pt.y + uy * lift;
+
+        // 5. Synchronous GPU vehicle transform (cached nodes, 0.1px rounding
+        // kills sub-pixel shimmer, skip-if-same avoids writes entirely when idle)
         if (vehicleGRef.current) {
-          vehicleGRef.current.setAttribute(
-            'transform',
-            `translate(${trackSample.pt.x}, ${trackSample.pt.y}) rotate(${unwrapped})`
-          );
+          if (!rearWheelElRef.current) {
+            rearWheelElRef.current = vehicleGRef.current.querySelector('.rear-wheel');
+            frontWheelElRef.current = vehicleGRef.current.querySelector('.front-wheel');
+            suspBodyElRef.current = vehicleGRef.current.querySelector('.susp-body');
+          }
+          const rx1 = Math.round(renderX * 10) / 10;
+          const ry1 = Math.round(renderY * 10) / 10;
+          const an1 = Math.round(unwrapped * 10) / 10;
+          if (rx1 !== L.x || ry1 !== L.y || an1 !== L.a) {
+            L.x = rx1;
+            L.y = ry1;
+            L.a = an1;
+            vehicleGRef.current.setAttribute(
+              'transform',
+              `translate(${rx1}, ${ry1}) rotate(${an1})`
+            );
+          }
 
           // Direct wheel rotation with zero React reconciliation
-          const rearWheel = vehicleGRef.current.querySelector('.rear-wheel');
-          const frontWheel = vehicleGRef.current.querySelector('.front-wheel');
+          const rearWheel = rearWheelElRef.current;
+          const frontWheel = frontWheelElRef.current;
           if (rearWheel && frontWheel) {
-            if (vehicleRef.current === 'car') {
-              rearWheel.setAttribute('transform', `rotate(${nextPhysics.wheelRot} 72 84)`);
-              frontWheel.setAttribute('transform', `rotate(${nextPhysics.wheelRot} 176 84)`);
-            } else if (vehicleRef.current === 'moto') {
-              rearWheel.setAttribute('transform', `rotate(${nextPhysics.wheelRot} 60 84)`);
-              frontWheel.setAttribute('transform', `rotate(${nextPhysics.wheelRot} 184 84)`);
-            } else if (vehicleRef.current === 'bikeA') {
-              rearWheel.setAttribute('transform', `rotate(${nextPhysics.wheelRot}, 28, 82)`);
-              frontWheel.setAttribute('transform', `rotate(${nextPhysics.wheelRot}, 120, 82)`);
+            const spin1 = Math.round(nextPhysics.wheelRot * 10) / 10;
+            if (spin1 !== L.spin) {
+              L.spin = spin1;
+              if (vType === 'car') {
+                rearWheel.setAttribute('transform', `rotate(${spin1} 72 84)`);
+                frontWheel.setAttribute('transform', `rotate(${spin1} 176 84)`);
+              } else if (vType === 'moto') {
+                rearWheel.setAttribute('transform', `rotate(${spin1} 60 84)`);
+                frontWheel.setAttribute('transform', `rotate(${spin1} 184 84)`);
+              } else if (vType === 'bikeA') {
+                rearWheel.setAttribute('transform', `rotate(${spin1}, 28, 82)`);
+                frontWheel.setAttribute('transform', `rotate(${spin1}, 120, 82)`);
+              } else if (vType === 'monster') {
+                rearWheel.setAttribute('transform', `rotate(${spin1} 70 105)`);
+                frontWheel.setAttribute('transform', `rotate(${spin1} 190 105)`);
+              }
+            }
+          }
+
+          // Sprung body heave + dive/squat pitch (wheels stay planted on the track)
+          if (!isRigidBike) {
+            const suspBody = suspBodyElRef.current;
+            const suspCfg = SUSP_RENDER[vType];
+            if (suspBody && suspCfg) {
+              const dy1 = Math.round((-nextPhysics.bodyH / suspCfg.s) * 100) / 100;
+              const pitch1 = Math.round(nextPhysics.suspensionPitch * 100) / 100;
+              if (dy1 !== L.dy || pitch1 !== L.pitch) {
+                L.dy = dy1;
+                L.pitch = pitch1;
+                suspBody.setAttribute(
+                  'transform',
+                  `translate(0 ${dy1}) rotate(${pitch1} ${suspCfg.px} ${suspCfg.py})`
+                );
+              }
             }
           }
         }
 
         if (bikeBRef.current) {
-          bikeBRef.current.style.transform = `translate(${trackSample.pt.x}px, ${trackSample.pt.y}px) rotate(${unwrapped}deg)`;
+          const bbx = Math.round(renderX * 10) / 10;
+          const bby = Math.round(renderY * 10) / 10;
+          const bba = Math.round(unwrapped * 10) / 10;
+          if (bbx !== L.bx || bby !== L.by || bba !== L.ba) {
+            L.bx = bbx;
+            L.by = bby;
+            L.ba = bba;
+            bikeBRef.current.style.transform = `translate(${bbx}px, ${bby}px) rotate(${bba}deg)`;
+          }
         }
 
         // Only toggle braking state when it transitions (0 per-frame renders)
@@ -706,8 +809,8 @@ export default function HomePage() {
         audioEngine.update(nextPhysics, vehicleRef.current);
 
         // 7. Synchronous GPU camera tracking: horizontal lock eliminates relative micro-hitching
-        const tCamX = trackSample.pt.x - viewport.width * 0.38;
-        const tCamY = (trackSample.pt.y - viewport.height * 0.5) * 0.5;
+        const tCamX = renderX - viewport.width * 0.38;
+        const tCamY = (renderY - viewport.height * 0.5) * 0.5;
 
         let nextY = tCamY;
         if (isFirstFrameRef.current) {
@@ -721,7 +824,13 @@ export default function HomePage() {
 
         // Direct hardware-accelerated GPU transform on the world layer
         if (worldRef.current) {
-          worldRef.current.style.transform = `translate3d(${-tCamX}px, ${-nextY}px, 0)`;
+          const cx1 = Math.round(-tCamX * 10) / 10;
+          const cy1 = Math.round(-nextY * 10) / 10;
+          if (cx1 !== L.camX || cy1 !== L.camY) {
+            L.camX = cx1;
+            L.camY = cy1;
+            worldRef.current.style.transform = `translate3d(${cx1}px, ${cy1}px, 0)`;
+          }
         }
 
         // 8. Progress pill direct DOM update (zero VDOM reconciliation)
@@ -737,59 +846,50 @@ export default function HomePage() {
           }
         }
 
-        // 9. High-performance particle pooling (zero React state updates, zero allocations)
-        const isMotorized = vehicleRef.current === 'car' || vehicleRef.current === 'moto';
+        // 9. In-place particle pool (zero per-frame allocation: mutate live
+        // particles, swap-remove the dead, spawn into free slots)
+        const isMotorized = vehicleRef.current === 'car' || vehicleRef.current === 'moto' || vehicleRef.current === 'monster';
         const isHighPower =
           Math.abs(nextPhysics.velocity) > 80 &&
           (nextPhysics.throttleApplied || nextPhysics.isSkidding);
 
-        let active = particlesRef.current;
-        if (isMotorized && isHighPower) {
-          const rad = (unwrapped * Math.PI) / 180;
-          const rx = trackSample.pt.x - 28 * Math.cos(rad);
-          const ry = trackSample.pt.y - 28 * Math.sin(rad) - 6;
-
-          active = active
-            .map((p) => ({
-              ...p,
-              x: p.x + p.vx,
-              y: p.y + p.vy,
-              alpha: p.alpha - (nextPhysics.isSkidding ? 0.025 : 0.038),
-            }))
-            .filter((p) => p.alpha > 0);
-
-          if (active.length < 24) {
-            particleIdRef.current += 1;
-            const isSkid = nextPhysics.isSkidding;
-            active.push({
-              id: particleIdRef.current,
-              x: rx + (Math.random() - 0.5) * 8,
-              y: ry + (Math.random() - 0.5) * 6,
-              vx: -Math.cos(rad) * (1.8 + Math.random() * 2.5),
-              vy: -Math.random() * (isSkid ? 2.2 : 1.2),
-              size: isSkid ? 3.5 + Math.random() * 4.5 : 2.2 + Math.random() * 3.5,
-              alpha: isSkid ? 0.75 : 0.55,
-              color: isSkid ? '#78716C' : vehicleRef.current === 'car' ? '#D97706' : '#EF4444',
-            });
+        const pool = particlesRef.current;
+        let count = particleCountRef.current;
+        const liveFade = nextPhysics.isSkidding ? 0.025 : 0.038;
+        for (let i = 0; i < count; i++) {
+          const q = pool[i];
+          q.x += q.vx;
+          q.y += q.vy;
+          q.alpha -= isMotorized && isHighPower ? liveFade : 0.045;
+          if (q.alpha <= 0) {
+            count--;
+            pool[i] = pool[count];
+            pool[count] = q;
+            i--;
           }
-        } else if (active.length > 0) {
-          active = active
-            .map((p) => ({
-              ...p,
-              x: p.x + p.vx,
-              y: p.y + p.vy,
-              alpha: p.alpha - 0.045,
-            }))
-            .filter((p) => p.alpha > 0);
         }
-        particlesRef.current = active;
+        if (isMotorized && isHighPower && count < pool.length) {
+          const rad = (unwrapped * Math.PI) / 180;
+          const isSkid = nextPhysics.isSkidding;
+          const q = pool[count++];
+          q.x = renderX - 28 * Math.cos(rad) + (Math.random() - 0.5) * 8;
+          q.y = renderY - 28 * Math.sin(rad) - 6 + (Math.random() - 0.5) * 6;
+          q.vx = -Math.cos(rad) * (1.8 + Math.random() * 2.5);
+          q.vy = -Math.random() * (isSkid ? 2.2 : 1.2);
+          q.size = isSkid ? 3.5 + Math.random() * 4.5 : 2.2 + Math.random() * 3.5;
+          q.alpha = isSkid ? 0.75 : 0.55;
+          q.color = isSkid
+            ? '#78716C'
+            : vType === 'car' ? '#D97706' : vType === 'monster' ? '#22C55E' : '#EF4444';
+        }
+        particleCountRef.current = count;
 
         if (particlesGRef.current) {
           const circles = particlesGRef.current.children;
           for (let i = 0; i < circles.length; i++) {
             const circle = circles[i] as SVGCircleElement;
-            if (i < active.length) {
-              const p = active[i];
+            if (i < count) {
+              const p = pool[i];
               circle.setAttribute('cx', p.x.toFixed(1));
               circle.setAttribute('cy', p.y.toFixed(1));
               circle.setAttribute('r', p.size.toFixed(1));
@@ -823,7 +923,7 @@ export default function HomePage() {
         className="absolute top-0 left-0 will-change-transform"
         style={{
           transform: 'translate3d(-400px, 0px, 0)',
-          width: '5000px',
+          width: '8000px',
           height: '750px',
           backfaceVisibility: 'hidden',
           WebkitBackfaceVisibility: 'hidden',
@@ -831,8 +931,8 @@ export default function HomePage() {
       >
         <svg
           className="absolute top-0 left-0 overflow-visible pointer-events-none"
-          style={{ width: '5000px', height: '750px' }}
-          viewBox="0 0 5000 750"
+          style={{ width: '8000px', height: '750px' }}
+          viewBox="0 0 8000 750"
         >
           {/* Track path reference for geometry sampling */}
           <path ref={pathRef} d={trackPathD} fill="none" stroke="transparent" />
@@ -894,6 +994,25 @@ export default function HomePage() {
               className="pointer-events-none"
             >
               <CycleA wheelRot={0} />
+            </g>
+          )}
+
+          {/* ---- MONSTER TRUCK ---- */}
+          {vehicle === 'monster' && (
+            <g
+              ref={vehicleGRef}
+              transform="translate(50, 480) rotate(0)"
+              style={{ transformOrigin: '0px 0px' }}
+              className="pointer-events-none"
+            >
+              <g transform="translate(-110, -118) scale(0.85)">
+                <MonsterTruck
+                  width={260}
+                  height={140}
+                  headlightsOn={true}
+                  isBraking={isBraking}
+                />
+              </g>
             </g>
           )}
         </svg>
@@ -988,6 +1107,19 @@ export default function HomePage() {
             }`}
           >
             🚲 Cycle A
+          </button>
+          <button
+            onClick={() => {
+              setVehicle('monster');
+              unlockAudio();
+            }}
+            className={`px-3 py-1.5 text-[11px] font-semibold transition-all rounded-full cursor-pointer whitespace-nowrap ${
+              vehicle === 'monster'
+                ? 'bg-neutral-900 text-white shadow-sm'
+                : 'text-neutral-400 hover:text-neutral-700'
+            }`}
+          >
+            🛻 Monster
           </button>
           <button
             onClick={() => {
